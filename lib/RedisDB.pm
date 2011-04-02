@@ -2,7 +2,7 @@ package RedisDB;
 
 use warnings;
 use strict;
-our $VERSION = 0.01;
+our $VERSION = 0.02;
 
 use IO::Socket::INET;
 use Socket qw(MSG_DONTWAIT);
@@ -64,6 +64,22 @@ sub new {
     return $self;
 }
 
+=head2 $self->execute($command, @arguments)
+
+send command to the server and return server reply. It throws exception if
+server returns error.
+
+=cut
+
+sub execute {
+    my $self = shift;
+    $_[0] = uc $_[0];
+    $self->send_command(@_);
+    my ( $type, $value ) = $self->recv_reply;
+    croak $value if $type eq '-';
+    return $value;
+}
+
 =head2 $self->connect
 
 establish connection to the server. There's usually no need to use this
@@ -73,7 +89,7 @@ method, as connection is established by new or when you send a command.
 
 sub connect {
     my $self = shift;
-    $self->{_pid} = $$;
+    $self->{_pid}    = $$;
     $self->{_socket} = IO::Socket::INET->new(
         PeerAddr => $self->{host},
         PeerPort => $self->{port},
@@ -85,7 +101,9 @@ sub connect {
 
 =head2 $self->send_command($command, @arguments)
 
-send command to the server
+send command to the server. Returns true if command was successfully sent, or
+dies if error occured. Note, that it doesn't return server reply, you should
+retrieve reply using I<recv_reply> method.
 
 =cut
 
@@ -210,15 +228,12 @@ See description of these commands in redis documentation at L<http://redis.io/co
 
 for my $command (@commands) {
     my $uccom = uc $command;
+    $uccom =~ s/_/ /g;
     no strict 'refs';
     *{ __PACKAGE__ . "::$command" } = sub {
         my $self = shift;
-        $self->send_command( $uccom, @_ );
-        my ( $type, $value ) = $self->recv_reply;
-        croak $value   if $type eq '-';
-        return @$value if $type eq '*';
-        return $value;
-      }
+        return $self->execute( $uccom, @_ );
+    };
 }
 
 # build_redis_request($command, @arguments)
@@ -402,6 +417,10 @@ Test all commands
 =item *
 
 Better pipelining support
+
+=item *
+
+User defined error callback
 
 =item *
 
