@@ -22,5 +22,4 @@ t/disconnect.t
 t/manifest.t
 t/pod.t
 t/protocol.t
-t/redis_disconnect.t
 t/RedisServer.pm
