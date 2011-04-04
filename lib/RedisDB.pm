@@ -2,7 +2,7 @@ package RedisDB;
 
 use warnings;
 use strict;
-our $VERSION = 0.04;
+our $VERSION = 0.05;
 
 use IO::Socket::INET;
 use Socket qw(MSG_DONTWAIT);
@@ -61,7 +61,7 @@ sub new {
     $self->{port} ||= 6379;
     $self->{host} ||= 'localhost';
     $self->{_replies} = [];
-    $self->connect unless $self->{lazy};
+    $self->_connect unless $self->{lazy};
     return $self;
 }
 
@@ -77,8 +77,8 @@ wrapper named after the redis command. E.g.:
 
 See "SUPPORTED REDIS COMMANDS" section for the full list of defined aliases.
 
-Note, that you can't use I<execute> if you send some commands in pipelining
-mode and not yet got all the replies.
+Note, that you can't use I<execute> if you have sent some commands in pipelining
+mode and haven't yet got all replies.
 
 =cut
 
@@ -94,14 +94,9 @@ sub execute {
     return $value;
 }
 
-=head2 $self->connect
+# establish connection to the server.
 
-establish connection to the server. There's usually no need to use this
-method, as connection is established by new or when you send a command.
-
-=cut
-
-sub connect {
+sub _connect {
     my $self = shift;
     $self->{_pid}    = $$;
     $self->{_socket} = IO::Socket::INET->new(
@@ -144,7 +139,7 @@ sub _recv_data_nb {
 
             # clean disconnect, try to reconnect
             $self->{warnings} and warn "Disconnected, trying to reconnect";
-            $self->connect;
+            $self->_connect;
             last;
         }
     }
@@ -163,8 +158,7 @@ retrieve reply using I<get_reply> method.
 sub send_command {
     my $self    = shift;
     my $request = _build_redis_request(@_);
-    $self->connect unless $self->{_socket} and $self->{_pid} == $$;
-    local $SIG{PIPE} = 'IGNORE';
+    $self->_connect unless $self->{_socket} and $self->{_pid} == $$;
 
     # Here we reading received data and storing it in the _buffer,
     # but the main purpose is to check if connection is still alive
@@ -299,9 +293,9 @@ restored and module will throw exception.
 You can send commands in pipelining mode. In this case you sending multiple
 commands to the server without waiting for replies.  You can use
 I<send_command> method to send multiple commands to the server. I<reply_ready>
-function may be used to check if some replies are already received. And
-I<get_reply> function may be used to fetch received reply. Note, that you can't
-use execute method (or wrappers around it, like I<get> or <set>) while in
+method may be used to check if some replies are already received. And
+I<get_reply> method may be used to fetch received reply. Note, that you can't
+use I<execute> method (or wrappers around it, like I<get> or I<set>) while in
 pipeline mode, you must receive replies on all pipelined commands first.
 
 =cut
@@ -323,9 +317,8 @@ sub _build_redis_request {
 
 # $self->_parse_reply
 #
-# This method expect some data in the $self->{_buffer}. If buffer contains
-# full request, then method returns array with reply type as first element
-# and the data as the rest of array
+# checks if buffer contains full reply. Returns 1 if it is,
+# and pushes reply into @{$self->{_replies}}
 my ( $READ_LINE, $READ_NUMBER, $READ_BULK_LEN, $READ_BULK, $READ_MBLK_LEN, $WAIT_BUCKS ) = 1 .. 6;
 
 sub _parse_reply {
@@ -336,7 +329,7 @@ sub _parse_reply {
     unless ( $self->{_parse_state} ) {
         my $type = substr( $self->{_buffer}, 0, 1, '' );
         $self->{_parse_reply} = [$type];
-        if ( $type =~ /[+-]/ ) {
+        if ( $type eq '+' or $type eq '-' ) {
             $self->{_parse_state} = $READ_LINE;
         }
         elsif ( $type eq ':' ) {
@@ -503,7 +496,7 @@ User defined error callback
 
 =item *
 
-Handle cases than client not interested in replies
+Handle cases when client is not interested in replies
 
 =item *
 
@@ -516,10 +509,6 @@ Subscriptions support (PSUBSCRIBE, PUNSUBSCRIBE, SUBSCRIBE, UNSUBSCRIBE)
 =item *
 
 MONITOR support
-
-=item *
-
-Non-blocking check if reply available
 
 =back
 
