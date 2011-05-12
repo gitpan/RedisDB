@@ -2,7 +2,7 @@ package RedisDB;
 
 use warnings;
 use strict;
-our $VERSION = 0.07;
+our $VERSION = 0.08;
 
 use IO::Socket::INET;
 use Socket qw(MSG_DONTWAIT);
@@ -88,8 +88,8 @@ sub execute {
       if $self->{_commands_in_flight}
           or @{ $self->{_replies} };
     croak "This function is not available in subscription mode." if $self->{_subscription_loop};
-    $_[0] = uc $_[0];
-    $self->send_command(@_);
+    my $cmd = uc shift;
+    $self->send_command($cmd, @_);
     return $self->get_reply;
 }
 
@@ -135,7 +135,7 @@ sub _recv_data_nb {
 
             # if there's some replies lost
             die "Server closed connection. Some data was lost."
-              if $self->{_commands_in_flight};
+              if $self->{_commands_in_flight} or $self->{_in_multi};
 
             # clean disconnect, try to reconnect
             $self->{warnings} and warn "Disconnected, trying to reconnect";
@@ -241,7 +241,8 @@ my @commands = qw(
   rpush	rpushx	sadd	save	scard	sdiff	sdiffstore	select	set
   setbit	setex	setnx	setrange	shutdown	sinter	sinterstore
   sismember	slaveof	smembers	smove	sort	spop	srandmember
-  srem	strlen	sunion	sunionstore	sync	ttl	type	zadd	zcard
+  srem	strlen	sunion	sunionstore	sync	ttl	type	unwatch watch
+  zadd	zcard
   zcount	zincrby	zinterstore	zrange	zrangebyscore	zrank	zremrangebyrank
   zremrangebyscore	zrevrange	zrevrangebyscore	zrevrank
   zscore	zunionstore
@@ -262,7 +263,7 @@ publish,	quit,	randomkey,	rename,	renamenx,	rpop,	rpoplpush,
 rpush,	rpushx,	sadd,	save,	scard,	sdiff,	sdiffstore,	select,	set,
 setbit,	setex,	setnx,	setrange,	shutdown,	sinter,	sinterstore,
 sismember,	slaveof,	smembers,	smove,	sort,	spop,	srandmember,
-srem,	strlen,	sunion,	sunionstore,	sync,	ttl,	type,	zadd,	zcard,
+srem,	strlen,	sunion,	sunionstore,	sync,	ttl,	type,	unwatch, watch, zadd,	zcard,
 zcount,	zincrby,	zinterstore,	zrange,	zrangebyscore,	zrank,	zremrangebyrank,
 zremrangebyscore,	zrevrange,	zrevrangebyscore,	zrevrank,
 zscore,	zunionstore
@@ -289,7 +290,8 @@ to the server but only if no data was lost as result of disconnect. E.g. if
 client was idle for some time and redis server closed connection, it will be
 transparently restored on sending next command. If you send a command and
 server closed connection without sending complete reply, connection will not be
-restored and module will throw exception.
+restored and module will throw exception. Also module will throw exception if
+connection will be closed in the middle of transaction.
 
 =cut
 
@@ -527,6 +529,70 @@ sub psubscribed {
     return keys %{ shift->{_psubscribed} };
 }
 
+=head1 TRANSACTIONS SUPPORT
+
+Transactions allow you execute a sequence of commands in a single step. In
+order to start transaction you should use method I<multi>.  After you entered
+transaction all commands you issue are queued, but not executed till you call
+I<exec> method. Tipically these commands return string "QUEUED" as result, but
+if there's an error in e.g. number of arguments they may croak. When you
+calling exec all queued commands are executed and exec returns list of results
+for every command in transaction. If any command failed exec will croak. If
+instead of I<exec> you will call I<discard>, all scheduled commands will be
+canceled.
+
+You can set some keys as watched. If any whatched key will be changed by
+another client before you call exec, transaction will be discarded and exec
+will return false value.
+
+=cut
+
+=head2 $self->multi
+
+Enter transaction. After this and till I<exec> or I<discard> will be called,
+all commands will be queued but not executed.
+
+=cut
+
+sub multi {
+    my $self = shift;
+
+    my $res = $self->execute('MULTI');
+    $self->{_in_multi} = 1;
+    return $res;
+}
+
+=head2 $self->exec
+
+Execute all queued commands and finish transaction. Returns list of results for
+every command. May croak if some command failed.  Also unwatches all keys. If
+some of the watched keys was changed by other client, transaction will be
+canceled and I<exec> will return false.
+
+=cut
+
+sub exec {
+    my $self = shift;
+
+    my $res = $self->execute('EXEC');
+    $self->{_in_multi} = undef;
+    return $res;
+}
+
+=head2 $self->discard
+
+Discard all queued commands without executing them and unwatch all keys.
+
+=cut
+
+sub discard {
+    my $self = shift;
+
+    my $res = $self->execute('DISCARD');
+    $self->{_in_multi} = undef;
+    return $res;
+}
+
 # build_redis_request($command, @arguments)
 #
 # Builds unified redis request from given I<$command> and I<@arguments>.
@@ -566,7 +632,8 @@ sub _parse_reply {
             $self->{_parse_state} = $READ_BULK_LEN;
         }
         elsif ( $type eq '*' ) {
-            $self->{_parse_state} = $READ_MBLK_LEN;
+            $self->{_parse_state}      = $READ_MBLK_LEN;
+            $self->{_parse_mblk_level} = 1;
         }
         else {
             die "Got invalid reply: $type$self->{_buffer}";
@@ -574,14 +641,21 @@ sub _parse_reply {
     }
 
     # parse data
-    my $repeat = 1;
+    my $repeat    = 1;
+    my $completed = 0;
     while ($repeat) {
         $repeat = 0;
         return unless length $self->{_buffer} >= 2;
         if ( $self->{_parse_state} == $READ_LINE ) {
             if ( defined( my $line = $self->_read_line ) ) {
-                $self->{_parse_reply}[1] = $line;
-                return $self->_reply_completed;
+                if ( $self->{_parse_reply}[0] eq '+' or $self->{_parse_reply}[0] eq '-' ) {
+                    $self->{_parse_reply}[1] = $line;
+                    return $self->_reply_completed;
+                }
+                else {
+                    $repeat    = $self->_mblk_item($line);
+                    $completed = !$repeat;
+                }
             }
         }
         elsif ( $self->{_parse_state} == $READ_NUMBER ) {
@@ -592,14 +666,8 @@ sub _parse_reply {
                     return $self->_reply_completed;
                 }
                 else {
-                    push @{ $self->{_parse_reply}[1] }, $line;
-                    if ( --$self->{_parse_mblk_len} ) {
-                        $self->{_parse_state} = $WAIT_BUCKS;
-                        $repeat = 1;
-                    }
-                    else {
-                        return $self->_reply_completed;
-                    }
+                    $repeat    = $self->_mblk_item($line);
+                    $completed = !$repeat;
                 }
             }
         }
@@ -616,14 +684,8 @@ sub _parse_reply {
                         return $self->_reply_completed;
                     }
                     else {
-                        push @{ $self->{_parse_reply}[1] }, undef;
-                        if ( --$self->{_parse_mblk_len} ) {
-                            $self->{_parse_state} = $WAIT_BUCKS;
-                            $repeat = 1;
-                        }
-                        else {
-                            return $self->_reply_completed;
-                        }
+                        $repeat    = $self->_mblk_item(undef);
+                        $completed = !$repeat;
                     }
                 }
             }
@@ -637,14 +699,8 @@ sub _parse_reply {
                 return $self->_reply_completed;
             }
             else {
-                push @{ $self->{_parse_reply}[1] }, $bulk;
-                if ( --$self->{_parse_mblk_len} ) {
-                    $self->{_parse_state} = $WAIT_BUCKS;
-                    $repeat = 1;
-                }
-                else {
-                    return $self->_reply_completed;
-                }
+                $repeat    = $self->_mblk_item($bulk);
+                $completed = !$repeat;
             }
         }
         elsif ( $self->{_parse_state} == $READ_MBLK_LEN ) {
@@ -676,6 +732,15 @@ sub _parse_reply {
             elsif ( $char eq ':' ) {
                 $self->{_parse_state} = $READ_NUMBER;
             }
+            elsif ( $char eq '+' ) {
+                $self->{_parse_state} = $READ_LINE;
+            }
+            elsif ( $char eq '*' ) {
+                $self->{_parse_state} = $READ_MBLK_LEN;
+                $self->{_parse_mblk_level}++;
+                $self->{_parse_mblk_store} = [ $self->{_parse_mblk_len}, $self->{_parse_reply} ];
+                $self->{_parse_reply} = ['*'];
+            }
             else {
                 die "Invalid multi-bulk reply. Expected '\$' or ':' but got $char"
                   ;    # $self->{_buffer}";
@@ -683,7 +748,7 @@ sub _parse_reply {
             $repeat = 1;
         }
     }
-    return;
+    return $completed ? $self->_reply_completed : undef;
 }
 
 sub _read_line {
@@ -698,6 +763,31 @@ sub _read_line {
         substr $self->{_buffer}, 0, 2, '';
     }
     return $line;
+}
+
+sub _mblk_item {
+    my ( $self, $value ) = @_;
+
+    push @{ $self->{_parse_reply}[1] }, $value;
+    my $repeat;
+    if ( --$self->{_parse_mblk_len} ) {
+        $self->{_parse_state} = $WAIT_BUCKS;
+        $repeat = 1;
+    }
+    elsif ( --$self->{_parse_mblk_level} ) {
+        $self->{_parse_mblk_len} = shift @{ $self->{_parse_mblk_store} };
+        $self->{_parse_mblk_len}--;
+        my $reply = shift @{ $self->{_parse_mblk_store} };
+        push @{ $reply->[1] }, $self->{_parse_reply}[1];
+        $self->{_parse_reply} = $reply;
+        $self->{_parse_state} = $WAIT_BUCKS;
+        $repeat               = $self->{_parse_mblk_len} > 0;
+    }
+    else {
+        $repeat = 0;
+    }
+
+    return $repeat;
 }
 
 sub _reply_completed {
@@ -740,10 +830,6 @@ Test all commands
 =item *
 
 Handle cases when client is not interested in replies
-
-=item *
-
-Transactions support (MULTI, EXEC, DISCARD, WATCH, UNWATCH)
 
 =back
 
