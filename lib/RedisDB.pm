@@ -2,11 +2,12 @@ package RedisDB;
 
 use warnings;
 use strict;
-our $VERSION = 0.08;
+our $VERSION = 0.09;
 
 use IO::Socket::INET;
-use Socket qw(MSG_DONTWAIT);
+use Socket qw(MSG_DONTWAIT SO_RCVTIMEO SO_SNDTIMEO);
 use POSIX qw(:errno_h);
+use Config;
 use Carp;
 
 =head1 NAME
@@ -22,8 +23,6 @@ RedisDB - Perl extension to access redis database
     my $value = $redis->get($key);
 
 =head1 DESCRIPTION
-
-B<This is alfa version, use on your own risk, interface is subject to change>
 
 This module provides interface to access redis database. It transparently
 handles disconnects and forks. It supports pipelining mode.
@@ -43,6 +42,11 @@ domain name of the host running redis server. Default: "localhost"
 =item port
 
 port to connect. Default: 6379
+
+=item timeout
+
+IO timeout. With this option set, if IO operation will take more than specified
+number of seconds module will croak.
 
 =item lazy
 
@@ -101,10 +105,24 @@ sub _connect {
     $self->{_socket} = IO::Socket::INET->new(
         PeerAddr => $self->{host},
         PeerPort => $self->{port},
-        Proto    => 'tcp'
+        Proto    => 'tcp',
+        ( $self->{timeout} ? ( Timeout => $self->{timeout} ) : () ),
     ) or die "Can't connect to redis server $self->{host}:$self->{port}: $!";
+
+    if ( $self->{timeout} ) {
+        my $timeout =
+          $Config{longsize} == 4
+          ? pack( 'LL', $self->{timeout}, 0 )
+          : pack( 'QQ', $self->{timeout} );
+        defined $self->{_socket}->sockopt( SO_RCVTIMEO, $timeout )
+          or die "Can't set receive timeout: $!";
+        defined $self->{_socket}->sockopt( SO_SNDTIMEO, $timeout )
+          or die "Can't set send timeout: $!";
+    }
+
     $self->{_commands_in_flight} = 0;
     $self->{_subscription_loop}  = 0;
+
     return 1;
 }
 
@@ -158,7 +176,7 @@ retrieve reply using I<get_reply> method.
 sub send_command {
     my $self = shift;
     if ( $self->{_subscription_loop} ) {
-        croak "only (UN)(P)SUBSCRIBE and QUITE allowed in subscription loop"
+        croak "only (UN)(P)SUBSCRIBE and QUIT allowed in subscription loop"
           unless $_[0] =~ /^(p?(un)?subscribe|quit)$/i;
     }
     my $request = _build_redis_request(@_);
@@ -229,13 +247,29 @@ sub get_reply {
     return $res->[1];
 }
 
+=head2 $self->version
+
+Return version of the server client is connected to. Version is returned as floating point
+number represented the same way as the perl versions. E.g. for redis 2.1.12 it will return
+2.001012.
+
+=cut
+
+sub version {
+    my $self = shift;
+    my $info = $self->info;
+    $info->{redis_version} =~ /^([0-9]+)[.]([0-9]+)(?:[.]([0-9]+))?/ or die "Can't parse version string: $info->{redis_version}";
+    $self->{_server_version} = $1 + 0.001 * $2 + ( $3 ? 0.000001 * $3 : 0 );
+    return $self->{_server_version};
+}
+
 my @commands = qw(
   append	auth	bgrewriteaof	bgsave	blpop	brpoplpush	config_get
   config_set	config_resetstat	dbsize	debug_object	debug_segfault
   decr	decrby	del	echo	exists	expire	expireat	flushall
   flushdb	get	getbit	getrange	getset	hdel	hexists	hget	hgetall
   hincrby	hkeys	hlen	hmget	hmset	hset	hsetnx	hvals	incr	incrby
-  info	keys	lastsave	lindex	linsert	llen	lpop	lpush	lpushx
+  keys	lastsave	lindex	linsert	llen	lpop	lpush	lpushx
   lrange	lrem	lset	ltrim	mget	move	mset	msetnx	persist	ping
   publish	quit	randomkey	rename	renamenx	rpop	rpoplpush
   rpush	rpushx	sadd	save	scard	sdiff	sdiffstore	select	set
@@ -257,7 +291,7 @@ config_set,	config_resetstat,	dbsize,	debug_object,	debug_segfault,
 decr,	decrby,	del,	echo,	exists,	expire,	expireat,	flushall,
 flushdb,	get,	getbit,	getrange,	getset,	hdel,	hexists,	hget,	hgetall,
 hincrby,	hkeys,	hlen,	hmget,	hmset,	hset,	hsetnx,	hvals,	incr,	incrby,
-info,	keys,	lastsave,	lindex,	linsert,	llen,	lpop,	lpush,	lpushx,
+keys,	lastsave,	lindex,	linsert,	llen,	lpop,	lpush,	lpushx,
 lrange,	lrem,	lset,	ltrim,	mget,	move,	mset,	msetnx,	persist,	ping,
 publish,	quit,	randomkey,	rename,	renamenx,	rpop,	rpoplpush,
 rpush,	rpushx,	sadd,	save,	scard,	sdiff,	sdiffstore,	select,	set,
@@ -280,6 +314,27 @@ for my $command (@commands) {
         my $self = shift;
         return $self->execute( $uccom, @_ );
     };
+}
+
+=pod
+
+The following commands implement some additional postprocessing of results:
+
+=cut
+
+=head2 $self->info
+
+Return information and statistics about server. Redis returns information in form of
+I<field:value>, I<info> method parses result and returns it as hash reference.
+
+=cut
+
+sub info {
+    my $self = shift;
+
+    my $info = $self->execute('INFO');
+    my %info = map { /^([^:]+):(.*)$/ } split /\r\n/, $info;
+    return \%info;
 }
 
 =head1 HANDLING OF SERVER DISCONNECTS
