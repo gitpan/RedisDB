@@ -2,7 +2,8 @@ package RedisDB;
 
 use warnings;
 use strict;
-our $VERSION = 0.09;
+our $VERSION = "0.10";
+$VERSION = eval $VERSION;
 
 use IO::Socket::INET;
 use Socket qw(MSG_DONTWAIT SO_RCVTIMEO SO_SNDTIMEO);
@@ -264,7 +265,7 @@ sub version {
 }
 
 my @commands = qw(
-  append	auth	bgrewriteaof	bgsave	blpop	brpoplpush	config_get
+  append	auth	bgrewriteaof	bgsave	blpop	brpop   brpoplpush	config_get
   config_set	config_resetstat	dbsize	debug_object	debug_segfault
   decr	decrby	del	echo	exists	expire	expireat	flushall
   flushdb	get	getbit	getrange	getset	hdel	hexists	hget	hgetall
@@ -286,7 +287,7 @@ my @commands = qw(
 
 Usually, instead of using I<execute> method, you can just use methods with names
 matching names of the redis commands. The following methods are defined as wrappers around execute:
-append,	auth,	bgrewriteaof,	bgsave,	blpop,	brpoplpush,	config_get,
+append,	auth,	bgrewriteaof,	bgsave,	blpop,	brpop,          brpoplpush,	config_get,
 config_set,	config_resetstat,	dbsize,	debug_object,	debug_segfault,
 decr,	decrby,	del,	echo,	exists,	expire,	expireat,	flushall,
 flushdb,	get,	getbit,	getrange,	getset,	hdel,	hexists,	hget,	hgetall,
