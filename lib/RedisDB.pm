@@ -2,14 +2,16 @@ package RedisDB;
 
 use warnings;
 use strict;
-our $VERSION = "0.10";
+our $VERSION = "0.11";
 $VERSION = eval $VERSION;
 
 use IO::Socket::INET;
+use IO::Socket::UNIX;
 use Socket qw(MSG_DONTWAIT SO_RCVTIMEO SO_SNDTIMEO);
 use POSIX qw(:errno_h);
 use Config;
 use Carp;
+use Try::Tiny;
 
 =head1 NAME
 
@@ -44,10 +46,16 @@ domain name of the host running redis server. Default: "localhost"
 
 port to connect. Default: 6379
 
+=item path
+
+you can connect to redis using UNIX socket. In this case instead of
+I<host> and I<port> you should specify I<path>.
+
 =item timeout
 
 IO timeout. With this option set, if IO operation will take more than specified
-number of seconds module will croak.
+number of seconds module will croak. Note, that some OSes don't support SO_RCVTIMEO,
+and SO_SNDTIMEO socket options, in this case timeout will not work.
 
 =item lazy
 
@@ -63,6 +71,9 @@ sub new {
     my $class = shift;
     my $self = ref $_[0] ? $_[0] : {@_};
     bless $self, $class;
+    if ( $self->{path} and ( $self->{host} or $self->{port} ) ) {
+        croak "You can't specify \"path\" together with \"host\" and \"port\"";
+    }
     $self->{port} ||= 6379;
     $self->{host} ||= 'localhost';
     $self->{_replies} = [];
@@ -102,23 +113,37 @@ sub execute {
 
 sub _connect {
     my $self = shift;
-    $self->{_pid}    = $$;
-    $self->{_socket} = IO::Socket::INET->new(
-        PeerAddr => $self->{host},
-        PeerPort => $self->{port},
-        Proto    => 'tcp',
-        ( $self->{timeout} ? ( Timeout => $self->{timeout} ) : () ),
-    ) or die "Can't connect to redis server $self->{host}:$self->{port}: $!";
+    $self->{_pid} = $$;
+
+    if ( $self->{path} ) {
+        $self->{_socket} = IO::Socket::UNIX->new(
+            Type => SOCK_STREAM,
+            Peer => $self->{path},
+        ) or die "Can't connect to redis server socket at `$self->{path}': $!";
+    }
+    else {
+        $self->{_socket} = IO::Socket::INET->new(
+            PeerAddr => $self->{host},
+            PeerPort => $self->{port},
+            Proto    => 'tcp',
+            ( $self->{timeout} ? ( Timeout => $self->{timeout} ) : () ),
+        ) or die "Can't connect to redis server $self->{host}:$self->{port}: $!";
+    }
 
     if ( $self->{timeout} ) {
         my $timeout =
           $Config{longsize} == 4
           ? pack( 'LL', $self->{timeout}, 0 )
           : pack( 'QQ', $self->{timeout} );
-        defined $self->{_socket}->sockopt( SO_RCVTIMEO, $timeout )
-          or die "Can't set receive timeout: $!";
-        defined $self->{_socket}->sockopt( SO_SNDTIMEO, $timeout )
-          or die "Can't set send timeout: $!";
+        try {
+            defined $self->{_socket}->sockopt( SO_RCVTIMEO, $timeout )
+              or die "Can't set timeout: $!";
+            defined $self->{_socket}->sockopt( SO_SNDTIMEO, $timeout )
+              or die "Can't set send timeout: $!";
+        }
+        catch {
+            warn "$_\n";
+        };
     }
 
     $self->{_commands_in_flight} = 0;
@@ -893,6 +918,11 @@ Handle cases when client is not interested in replies
 
 Please report any bugs or feature requests via GitHub bug tracker at
 L<http://github.com/trinitum/RedisDB/issues>.
+
+Known bugs are:
+
+Timeout support is OS dependent. If OS doesn't support SO_SNDTIMEO and SO_RCVTIMEO
+options timeouts will not work.
 
 =head1 AUTHOR
 
