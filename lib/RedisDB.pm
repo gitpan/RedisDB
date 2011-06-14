@@ -2,7 +2,7 @@ package RedisDB;
 
 use warnings;
 use strict;
-our $VERSION = "0.13";
+our $VERSION = "0.14";
 $VERSION = eval $VERSION;
 
 use IO::Socket::INET;
@@ -105,7 +105,7 @@ sub execute {
           or @{ $self->{_replies} };
     croak "This function is not available in subscription mode." if $self->{_subscription_loop};
     my $cmd = uc shift;
-    $self->send_command($cmd, @_);
+    $self->send_command( $cmd, @_ );
     return $self->get_reply;
 }
 
@@ -171,6 +171,7 @@ sub _recv_data_nb {
 
             # received some data
             $self->{_buffer} .= $buf;
+            1 while $self->{_buffer} and $self->_parse_reply;
         }
         else {
 
@@ -179,7 +180,8 @@ sub _recv_data_nb {
 
             # if there's some replies lost
             die "Server closed connection. Some data was lost."
-              if $self->{_commands_in_flight} or $self->{_in_multi};
+              if $self->{_commands_in_flight}
+                  or $self->{_in_multi};
 
             # clean disconnect, try to reconnect
             $self->{warnings} and warn "Disconnected, trying to reconnect";
@@ -273,6 +275,33 @@ sub get_reply {
     return $res->[1];
 }
 
+=head2 $self->get_all_replies
+
+Wait replies to all sent commands and return them as a list.
+
+=cut
+
+sub get_all_replies {
+    my $self = shift;
+    my $n    = $self->replies_to_fetch;
+    my @res;
+    for ( 1 .. $n ) {
+        push @res, $self->get_reply;
+    }
+    return @res;
+}
+
+=head2 $self->replies_to_fetch
+
+Return number of commands sent to server replies to which wasn't yet retrieved by I<get_reply> or I<get_all_replies>.
+
+=cut
+
+sub replies_to_fetch {
+    my $self = shift;
+    return $self->{_commands_in_flight} + @{ $self->{_replies} };
+}
+
 =head2 $self->version
 
 Return version of the server client is connected to. Version is returned as floating point
@@ -284,7 +313,8 @@ number represented the same way as the perl versions. E.g. for redis 2.1.12 it w
 sub version {
     my $self = shift;
     my $info = $self->info;
-    $info->{redis_version} =~ /^([0-9]+)[.]([0-9]+)(?:[.]([0-9]+))?/ or die "Can't parse version string: $info->{redis_version}";
+    $info->{redis_version} =~ /^([0-9]+)[.]([0-9]+)(?:[.]([0-9]+))?/
+      or die "Can't parse version string: $info->{redis_version}";
     $self->{_server_version} = $1 + 0.001 * $2 + ( $3 ? 0.000001 * $3 : 0 );
     return $self->{_server_version};
 }
@@ -312,21 +342,21 @@ my @commands = qw(
 
 Usually, instead of using I<execute> method, you can just use methods with names
 matching names of the redis commands. The following methods are defined as wrappers around execute:
-append,	auth,	bgrewriteaof,	bgsave,	blpop,	brpop,          brpoplpush,	config_get,
-config_set,	config_resetstat,	dbsize,	debug_object,	debug_segfault,
-decr,	decrby,	del,	echo,	exists,	expire,	expireat,	flushall,
-flushdb,	get,	getbit,	getrange,	getset,	hdel,	hexists,	hget,	hgetall,
-hincrby,	hkeys,	hlen,	hmget,	hmset,	hset,	hsetnx,	hvals,	incr,	incrby,
-keys,	lastsave,	lindex,	linsert,	llen,	lpop,	lpush,	lpushx,
-lrange,	lrem,	lset,	ltrim,	mget,	move,	mset,	msetnx,	persist,	ping,
-publish,	quit,	randomkey,	rename,	renamenx,	rpop,	rpoplpush,
-rpush,	rpushx,	sadd,	save,	scard,	sdiff,	sdiffstore,	select,	set,
-setbit,	setex,	setnx,	setrange,	shutdown,	sinter,	sinterstore,
-sismember,	slaveof,	smembers,	smove,	sort,	spop,	srandmember,
-srem,	strlen,	sunion,	sunionstore,	sync,	ttl,	type,	unwatch, watch, zadd,	zcard,
-zcount,	zincrby,	zinterstore,	zrange,	zrangebyscore,	zrank,	zremrangebyrank,
-zremrangebyscore,	zrevrange,	zrevrangebyscore,	zrevrank,
-zscore,	zunionstore
+append, auth, bgrewriteaof, bgsave, blpop, brpop, brpoplpush, config_get,
+config_set, config_resetstat, dbsize, debug_object, debug_segfault,
+decr, decrby, del, echo, exists, expire, expireat, flushall,
+flushdb, get, getbit, getrange, getset, hdel, hexists, hget, hgetall,
+hincrby, hkeys, hlen, hmget, hmset, hset, hsetnx, hvals, incr, incrby,
+keys, lastsave, lindex, linsert, llen, lpop, lpush, lpushx,
+lrange, lrem, lset, ltrim, mget, move, mset, msetnx, persist, ping,
+publish, quit, randomkey, rename, renamenx, rpop, rpoplpush,
+rpush, rpushx, sadd, save, scard, sdiff, sdiffstore, select, set,
+setbit, setex, setnx, setrange, shutdown, sinter, sinterstore,
+sismember, slaveof, smembers, smove, sort, spop, srandmember,
+srem, strlen, sunion, sunionstore, sync, ttl, type, unwatch, watch, zadd, zcard,
+zcount, zincrby, zinterstore, zrange, zrangebyscore, zrank, zremrangebyrank,
+zremrangebyscore, zrevrange, zrevrangebyscore, zrevrank,
+zscore, zunionstore
 
 See description of all commands in redis documentation at L<http://redis.io/commands>.
 
