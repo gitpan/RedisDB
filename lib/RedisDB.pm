@@ -2,7 +2,7 @@ package RedisDB;
 
 use warnings;
 use strict;
-our $VERSION = "0.16";
+our $VERSION = "0.17";
 $VERSION = eval $VERSION;
 
 use IO::Socket::INET;
@@ -344,7 +344,7 @@ my @commands = qw(
   lrange	lrem	lset	ltrim	mget	move	mset	msetnx	persist	ping
   publish	quit	randomkey	rename	renamenx	rpop	rpoplpush
   rpush	rpushx	sadd	save	scard	sdiff	sdiffstore	select	set
-  setbit	setex	setnx	setrange	shutdown	sinter	sinterstore
+  setbit	setex	setnx	setrange	sinter	sinterstore
   sismember	slaveof	smembers	smove	sort	spop	srandmember
   srem	strlen	sunion	sunionstore	sync	ttl	type	unwatch watch
   zadd	zcard
@@ -366,7 +366,7 @@ keys, lastsave, lindex, linsert, llen, lpop, lpush, lpushx,
 lrange, lrem, lset, ltrim, mget, move, mset, msetnx, persist, ping,
 publish, quit, randomkey, rename, renamenx, rpop, rpoplpush,
 rpush, rpushx, sadd, save, scard, sdiff, sdiffstore, select, set,
-setbit, setex, setnx, setrange, shutdown, sinter, sinterstore,
+setbit, setex, setnx, setrange, sinter, sinterstore,
 sismember, slaveof, smembers, smove, sort, spop, srandmember,
 srem, strlen, sunion, sunionstore, sync, ttl, type, unwatch, watch, zadd, zcard,
 zcount, zincrby, zinterstore, zrange, zrangebyscore, zrank, zremrangebyrank,
@@ -406,6 +406,20 @@ sub info {
     my $info = $self->execute('INFO');
     my %info = map { /^([^:]+):(.*)$/ } split /\r\n/, $info;
     return \%info;
+}
+
+=head2 $self->shutdown
+
+Shuts redis server down. Returns undef, as server doesn't send answer.
+Croaks in case of error.
+
+=cut
+
+sub shutdown {
+    my $self = shift;
+    $self->send_command('SHUTDOWN');
+    $self->{_commands_in_flight}--;
+    return;
 }
 
 =head1 HANDLING OF SERVER DISCONNECTS
@@ -969,6 +983,10 @@ Known bugs are:
 
 Timeout support is OS dependent. If OS doesn't support SO_SNDTIMEO and SO_RCVTIMEO
 options timeouts will not work.
+
+=head1 ACKNOWLEDGEMENTS
+
+Thanks to Sanko Robinson and FunkyMonk for help with porting this module on Windows.
 
 =head1 AUTHOR
 
