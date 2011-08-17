@@ -2,7 +2,7 @@ package RedisDB;
 
 use warnings;
 use strict;
-our $VERSION = "0.20";
+our $VERSION = "0.21";
 $VERSION = eval $VERSION;
 
 use RedisDB::Error;
@@ -600,7 +600,7 @@ sub subscription_loop {
         }
     }
     croak "You must subscribe at least to one channel"
-      unless ( keys %{ $self->{_subscribed} }, keys %{ $self->{_psubscribed} } );
+      unless ( keys %{ $self->{_subscribed} } or keys %{ $self->{_psubscribed} } );
 
     while ( my $msg = $self->get_reply ) {
         die "Expected multi-bulk reply, but got $msg" unless ref $msg;
