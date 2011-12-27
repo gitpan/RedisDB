@@ -4,15 +4,16 @@ author:
   - 'Pavel Shaydo, C<< <zwon at cpan.org> >>'
   - 'Pavel Shaydo <zwon@cpan.org>'
 build_requires:
-  ExtUtils::MakeMaker: 6.42
+  ExtUtils::MakeMaker: 6.36
   Test::Differences: 0.61
   Test::More: 0.96
   Test::Most: 0.22
   Test::use::ok: 0
 configure_requires:
-  ExtUtils::MakeMaker: 6.42
+  ExtUtils::MakeMaker: 6.36
 distribution_type: module
-generated_by: 'Module::Install version 1.02'
+dynamic_config: 1
+generated_by: 'Module::Install version 1.04'
 license: perl
 meta-spec:
   url: http://module-build.sourceforge.net/META-spec-v1.4.html
@@ -29,4 +30,4 @@ resources:
   homepage: http://github.com/trinitum/RedisDB
   license: http://dev.perl.org/licenses/
   repository: git://github.com/trinitum/RedisDB
-version: 0.24
+version: 0.25
