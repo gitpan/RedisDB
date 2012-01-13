@@ -2,7 +2,7 @@ package RedisDB;
 
 use warnings;
 use strict;
-our $VERSION = "0.27";
+our $VERSION = "0.28_1";
 $VERSION = eval $VERSION;
 
 use RedisDB::Error;
@@ -94,10 +94,11 @@ wrapper named after the redis command. E.g.:
     # is the same as
     $redis->set(key => 'value');
 
-See "SUPPORTED REDIS COMMANDS" section for the full list of defined aliases.
+See L</"WRAPPER METHODS"> section for the full list of defined aliases.
 
-Note, that you can't use I<execute> if you have sent some commands in pipelining
-mode and haven't yet got all replies.
+Note, that you can't use I<execute> if you have sent some commands using
+I<send_command> method without callback argument and have not yet got all
+replies.
 
 =cut
 
@@ -216,21 +217,62 @@ sub _queue {
     push @{ $self->{_replies} }, $reply;
 }
 
-=head2 $self->send_command($command[, @arguments])
+=head2 $self->send_command($command[, @arguments][, \&callback])
 
 send command to the server. Returns true if command was successfully sent, or
 dies if error occured. Note, that it doesn't return server reply, you should
-retrieve reply using I<get_reply> method.
+retrieve reply using I<get_reply> method or, if I<callback> specified, it will
+be invoked upon receiving reply from the server with two arguments: the RedisDB
+object, and reply from the server.  If server returns error, reply will be
+L<RedisDB::Error> object, you can get description of the error using this
+object in string context.  If you aren't interested in reply, you can use
+RedisDB::IGNORE_REPLY as the last argument.
+
+Note, that RedisDB doesn't run any background threads, so it will not receive
+reply and invoke callback unless you call some of it's methods which check if
+there's reply from the server, like I<send_command>, I<reply_ready>,
+I<get_reply>, or I<get_all_replies>.
 
 =cut
 
 sub send_command {
     my $self = shift;
-    ++$self->{_to_be_fetched};
-    return $self->send_command_cb( @_, \&_queue );
+
+    my $callback;
+    if ( ref $_[-1] eq 'CODE' ) {
+        $callback = pop;
+    }
+    else {
+        ++$self->{_to_be_fetched};
+        $callback = \&_queue;
+    }
+
+    my $command = uc shift;
+    if ( $self->{_subscription_loop} ) {
+        croak "only (UN)(P)SUBSCRIBE and QUIT allowed in subscription loop"
+          unless $command =~ /^(P?(UN)?SUBSCRIBE|QUIT)$/;
+    }
+    my $request = _build_redis_request( $command, @_ );
+    $self->_connect unless $self->{_socket} and $self->{_pid} == $$;
+
+    # Here we reading received data and storing it in the _buffer,
+    # but the main purpose is to check if connection is still alive
+    # and reconnect if not
+    $self->_recv_data_nb;
+
+    defined $self->{_socket}->send($request) or die "Can't send request to server: $!";
+    push @{ $self->{_callbacks} }, $callback;
+    return 1;
 }
 
-sub _ignore { 1 }
+sub _ignore {
+    my ( $self, $res ) = @_;
+    if ( ref $res eq 'RedisDB::Error' ) {
+        warn "Ignoring error returned by redis-server: $res";
+    }
+}
+
+sub IGNORE_REPLY { return \&_ignore; }
 
 =head2 $self->send_command_cb($command[, @arguments][, \&callback])
 
@@ -244,27 +286,29 @@ of it's methods which check if there's reply from the server, like
 I<send_command>, I<send_command_cb>, I<reply_ready>, I<get_reply>, or
 I<get_all_replies>.
 
+B<DEPRECATED:> this method is deprecated and may be removed in one of the
+future versions. Please use I<send_command> method instead. If you are using
+I<send_command_cb> with I<&callback> argument, you can just change method to
+I<send_command> and it will do the same. If you are using I<send_command_cb>
+with default callback, you should add RedisDB::IGNORE_REPLY as the last
+argument when changing method name to I<send_command>.  Here is the example
+that shows equivalents with the I<send_command>:
+
+    $redis->send_command_cb("SET", "Key", "Value");
+    # may be replaced with
+    $redis->send_command("SET", "Key", "Value", RedisDB::IGNORE_REPLY);
+
+    $redis->send_command_cb("GET", "Key", \&process_reply);
+    # may be replaced with
+    $redis->send_command("GET", "Key", \&process_reply);
+
 =cut
 
 sub send_command_cb {
     my $self = shift;
     my $callback = pop if ref $_[-1] eq 'CODE';
     $callback ||= \&_ignore;
-    if ( $self->{_subscription_loop} ) {
-        croak "only (UN)(P)SUBSCRIBE and QUIT allowed in subscription loop"
-          unless $_[0] =~ /^(p?(un)?subscribe|quit)$/i;
-    }
-    my $request = _build_redis_request(@_);
-    $self->_connect unless $self->{_socket} and $self->{_pid} == $$;
-
-    # Here we reading received data and storing it in the _buffer,
-    # but the main purpose is to check if connection is still alive
-    # and reconnect if not
-    $self->_recv_data_nb;
-
-    defined $self->{_socket}->send($request) or die "Can't send request to server: $!";
-    push @{ $self->{_callbacks} }, $callback;
-    return 1;
+    return $self->send_command( @_, $callback );
 }
 
 =head2 $self->reply_ready
@@ -382,24 +426,38 @@ my @commands = qw(
   zscore	zunionstore
 );
 
-=head1 SUPPORTED REDIS COMMANDS
+=head1 WRAPPER METHODS
 
-Usually, instead of using I<execute> method, you can just use methods with names
-matching names of the redis commands. The following methods are defined as wrappers around execute:
-append, auth, bgrewriteaof, bgsave, blpop, brpop, brpoplpush, config_get,
-config_set, config_resetstat, dbsize, debug_object, debug_segfault,
-decr, decrby, del, echo, exists, expire, expireat, flushall,
-flushdb, get, getbit, getrange, getset, hdel, hexists, hget, hgetall,
-hincrby, hkeys, hlen, hmget, hmset, hset, hsetnx, hvals, incr, incrby,
-keys, lastsave, lindex, linsert, llen, lpop, lpush, lpushx,
-lrange, lrem, lset, ltrim, mget, move, mset, msetnx, persist, ping,
-publish, quit, randomkey, rename, renamenx, rpop, rpoplpush,
-rpush, rpushx, sadd, save, scard, sdiff, sdiffstore, select, set,
-setbit, setex, setnx, setrange, sinter, sinterstore,
-sismember, slaveof, smembers, smove, sort, spop, srandmember,
-srem, strlen, sunion, sunionstore, sync, ttl, type, unwatch, watch, zadd, zcard,
-zcount, zincrby, zinterstore, zrange, zrangebyscore, zrank, zrem, zremrangebyrank,
-zremrangebyscore, zrevrange, zrevrangebyscore, zrevrank,
+Instead of using I<execute> and I<send_command> methods directly, it may be
+more convenient to use wrapper methods with names matching names of the redis
+commands. These methods call I<execute> or I<send_command> depending on the
+presence of callback argument. If callback is specified, method invokes
+I<send_command> and returns as soon as command is sent to server; when reply is
+received, it will be passed to callback (see L</"PIPELINING SUPPORT">). If
+there is no callback, method invokes I<execute>, waits for reply from server,
+and returns reply. E.g.:
+
+    $val = $redis->get($key);
+    # equivalent to
+    $val = $redis->execute("get", $key);
+
+    $redis->get($key, sub { $val = $_[1] });
+    # equivalent to
+    $redis->send_command("get", $key, sub { $val = $_[1] });
+
+The following wrapper methods are defined: append, auth, bgrewriteaof, bgsave,
+blpop, brpop, brpoplpush, config_get, config_set, config_resetstat, dbsize,
+debug_object, debug_segfault, decr, decrby, del, echo, exists, expire,
+expireat, flushall, flushdb, get, getbit, getrange, getset, hdel, hexists,
+hget, hgetall, hincrby, hkeys, hlen, hmget, hmset, hset, hsetnx, hvals, incr,
+incrby, keys, lastsave, lindex, linsert, llen, lpop, lpush, lpushx, lrange,
+lrem, lset, ltrim, mget, move, mset, msetnx, persist, ping, publish, quit,
+randomkey, rename, renamenx, rpop, rpoplpush, rpush, rpushx, sadd, save, scard,
+sdiff, sdiffstore, select, set, setbit, setex, setnx, setrange, sinter,
+sinterstore, sismember, slaveof, smembers, smove, sort, spop, srandmember,
+srem, strlen, sunion, sunionstore, sync, ttl, type, unwatch, watch, zadd,
+zcard, zcount, zincrby, zinterstore, zrange, zrangebyscore, zrank, zrem,
+zremrangebyrank, zremrangebyscore, zrevrange, zrevrangebyscore, zrevrank,
 zscore, zunionstore
 
 See description of all commands in redis documentation at L<http://redis.io/commands>.
@@ -412,7 +470,12 @@ for my $command (@commands) {
     no strict 'refs';
     *{ __PACKAGE__ . "::$command" } = sub {
         my $self = shift;
-        return $self->execute( $uccom, @_ );
+        if ( ref $_[-1] eq 'CODE' ) {
+            return $self->send_command( $uccom, @_ );
+        }
+        else {
+            return $self->execute( $uccom, @_ );
+        }
     };
 }
 
@@ -467,26 +530,61 @@ subscription loop.
 
 =head1 PIPELINING SUPPORT
 
-You can send commands in pipelining mode. In this case you sending multiple
-commands to the server without waiting for replies.  You can use
-I<send_command> and I<send_command_cb> methods to send multiple commands to the
-server.  In case of I<send_command> I<reply_ready> method may be used to check
-if some replies are already received, and I<get_reply> method may be used to
-fetch received reply. In case of I<send_command_cb> redis will invoke specified
-callback when it receive reply. Also if you not interested in reply you can
-omit callback, then reply will be dropped. Note, that RedisDB checks for
-replies only when you calling some of its methods, so the following loop will
-never exit:
+You can send commands in the pipelining mode. In this case you sending multiple
+commands to the server without waiting for the replies.  This is implemented by
+the I<send_command> method. Recommended way of using it is to pass a reference
+to the callback function as the last argument.  When module receives reply from
+the server, it will call this function with two arguments: reference to the
+RedisDB object, and reply from the server. It is important to understand
+though, that RedisDB does not run any background threads, neither it checks for
+the replies by setting some timer, so e.g. in the following example callback
+will never be invoked:
 
-    my $reply;
-    $redis->send_command_cb("PING", sub { $reply = $_[1] });
-    sleep 1 while not $reply;
+    my $pong;
+    $redis->send_command( "ping", sub { $pong = $_[1] } );
+    sleep 1 while not $pong;    # this will never return
 
-because redis will never receive reply and invoke callback.
+Therefore you need perriodically trigger check for the replies. The check is
+triggered when you call the following methods: I<send_command>, I<reply_ready>,
+I<get_reply>, I<get_all_replies>.  Calling wrapper method, like
+C<< $redis->get('key') >>, will also trigger check as internally wrapper methods
+use methods listed above.
 
-Note also, that you can't use I<execute> method (or wrappers around it, like
-I<get> or I<set>) while in pipeline mode, you must receive replies on all
-pipelined commands first.
+If you invoke I<send_command> without a callback argument, you have to fetch
+reply later explicitly using I<get_reply> method. This is how synchronous
+I<execute> is implemented, basically it is:
+
+    sub execute {
+        my $self = shift;
+        $self->send_command(@_);
+        return $self->get_reply;
+    }
+
+That is why it is not allowed to call I<execute> if you have not got replies to
+all commands sent previously with I<send_command> without callback.
+
+Sometimes you are not interested in replies sent by the server, e.g. SET
+command usually just return 'OK', in this case you can pass to I<send_command>
+callback which ignores its arguments, or use C<RedisDB::IGNORE_REPLY> constant, it
+is a no-op function:
+
+    for (@keys) {
+        # execute will not just send 'GET' command to the server,
+        # but it will also receive response to the 'SET' command sent on
+        # the previous loop iteration
+        my $val = $redis->execute( "get", $_ );
+        $redis->send_command( "set", $_, fun($val), RedisDB::IGNORE_REPLY );
+    }
+    # and this will wait for the last reply
+    $redis->mainloop;
+
+or using L</"WRAPPER METHODS"> you can rewrite it as:
+
+    for (@keys) {
+        my $val = $redis->get($_);
+        $redis->set( $_, fun($val), RedisDB::IGNORE_REPLY );
+    }
+    $redis->mainloop;
 
 =cut
 
