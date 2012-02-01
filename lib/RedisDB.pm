@@ -2,7 +2,7 @@ package RedisDB;
 
 use warnings;
 use strict;
-our $VERSION = "0.29";
+our $VERSION = "0.30_1";
 $VERSION = eval $VERSION;
 
 use RedisDB::Error;
@@ -82,6 +82,7 @@ sub new {
     $self->{_replies}       = [];
     $self->{_callbacks}     = [];
     $self->{_to_be_fetched} = 0;
+    $self->{_db_number}     = 0;
     $self->_connect unless $self->{lazy};
     return $self;
 }
@@ -118,6 +119,12 @@ sub execute {
 
 sub _connect {
     my $self = shift;
+
+    # this is to prevent recursion
+    croak "Couldn't connect to the redis-server."
+      . " Connection was immediately closed by the server."
+      if $self->{_in_connect}++;
+
     $self->{_pid} = $$;
 
     if ( $self->{path} ) {
@@ -153,7 +160,11 @@ sub _connect {
 
     $self->{_callbacks}         = [];
     $self->{_subscription_loop} = 0;
+    if ( $self->{_db_number} ) {
+        $self->send_command( "SELECT", $self->{_db_number}, IGNORE_REPLY() );
+    }
 
+    delete $self->{_in_connect};
     return 1;
 }
 
@@ -255,6 +266,17 @@ sub send_command {
         croak "only (UN)(P)SUBSCRIBE and QUIT allowed in subscription loop"
           unless $command =~ /^(P?(UN)?SUBSCRIBE|QUIT)$/;
     }
+
+    # if SELECT has been successful, we should update _db_number
+    if ( $command eq 'SELECT' ) {
+        my $cb    = $callback;
+        my $dbnum = $_[0];
+        $callback = sub {
+            $_[0]->{_db_number} = $dbnum unless ref $_[1];
+            $cb->(@_);
+        };
+    }
+
     my $request = _build_redis_request( $command, @_ );
     $self->_connect unless $self->{_socket} and $self->{_pid} == $$;
 
