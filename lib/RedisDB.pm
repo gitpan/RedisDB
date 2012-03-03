@@ -2,7 +2,7 @@ package RedisDB;
 
 use warnings;
 use strict;
-our $VERSION = "0.31";
+our $VERSION = "0.32_1";
 $VERSION = eval $VERSION;
 
 use RedisDB::Error;
@@ -13,6 +13,7 @@ use POSIX qw(:errno_h);
 use Config;
 use Carp;
 use Try::Tiny;
+use Encode qw();
 
 =head1 NAME
 
@@ -68,6 +69,12 @@ IO timeout. With this option set, if IO operation has taken more than specified
 number of seconds, module will croak. Note, that some OSes do not support
 SO_RCVTIMEO, and SO_SNDTIMEO socket options, in this case timeout will not
 work.
+
+=item utf8
+
+Assume that all data on the server encoded in UTF-8. As result all strings will
+be converted to UTF-8 before sending to server, and all results will be decoded
+from UTF-8. See L</"UTF-8 SUPPORT">.
 
 =item lazy
 
@@ -286,7 +293,7 @@ sub send_command {
         };
     }
 
-    my $request = _build_redis_request( $command, @_ );
+    my $request = _build_redis_request( $self, $command, @_ );
     $self->_connect unless $self->{_socket} and $self->{_pid} == $$;
 
     # Here we reading received data and storing it in the _buffer,
@@ -467,6 +474,23 @@ sub selected_database {
     shift->{database};
 }
 
+=head2 $self->reset_connection
+
+Resets connection. This closes existing connection and drops all previously
+sent requests. After invoking this method the object returns to the same state
+as it was returned by the constructor.
+
+=cut
+
+sub reset_connection {
+    my $self = shift;
+    delete $self->{$_} for grep /^_/, keys %$self;
+    $self->{_replies}       = [];
+    $self->{_callbacks}     = [];
+    $self->{_to_be_fetched} = 0;
+    return;
+}
+
 =head2 $self->version
 
 Return the version of the server the client is connected to. The version is
@@ -592,6 +616,24 @@ sub shutdown {
     pop @{ $self->{_callbacks} };
     return;
 }
+
+=head1 UTF-8 SUPPORT
+
+The redis protocol is designed to work with the binary data, both keys and
+values are encoded in the same way as sequences of octets.  By default this
+module expects all data to be just strings of bytes. There is an option to
+treat all data as UTF-8 strings. If you pass I<utf8> parameter to the
+constructor, module will encode all strings to UTF-8 before sending them to
+server, and will decode all strings received from server from UTF-8. This has
+following repercussions you should be aware off: first, you can't store binary
+data on server with this option on, it would be treated as a sequence of latin1
+characters, and would be converted into a corresponding sequence of UTF-8 encoded
+characters; second, if data returned by the server is not a valid UTF-8 encoded
+string, the module will croak, and you will have to reinitialize the
+connection. Generally, I would recommend to write a wrapper around L<RedisDB> instead of
+setting I<utf8> option.
+
+=cut
 
 =head1 HANDLING OF SERVER DISCONNECTS
 
@@ -962,13 +1004,17 @@ sub discard {
 #
 # Builds unified redis request from given I<$command> and I<@arguments>.
 sub _build_redis_request {
+    my $self  = shift;
     my $nargs = @_;
 
-    use bytes;
     my $req = "*$nargs\015\012";
-    while ( $nargs-- ) {
-        my $arg = shift;
-        $req .= '$' . length($arg) . "\015\012" . $arg . "\015\012";
+    if ( $self->{utf8} ) {
+        $req .= '$' . length($_) . "\015\012" . $_ . "\015\012"
+          for map { Encode::encode( 'UTF-8', $_, Encode::FB_CROAK | Encode::LEAVE_SRC ) } @_;
+    }
+    else {
+        use bytes;
+        $req .= '$' . length($_) . "\015\012" . $_ . "\015\012" for @_;
     }
     return $req;
 }
@@ -1059,6 +1105,14 @@ sub _parse_reply {
             return unless length $self->{_buffer} >= 2 + $self->{_parse_bulk_len};
             my $bulk = substr( $self->{_buffer}, 0, $self->{_parse_bulk_len}, '' );
             substr $self->{_buffer}, 0, 2, '';
+            if ( $self->{utf8} ) {
+                try {
+                    $bulk = Encode::decode( 'UTF-8', $bulk, Encode::FB_CROAK | Encode::LEAVE_SRC );
+                }
+                catch {
+                    croak "Couldn't decode reply from the server, invalid UTF-8: '$bulk'";
+                };
+            }
             if ( $self->{_parse_reply}[0] eq '$' ) {
                 $self->{_parse_reply}[1] = $bulk;
                 return $self->_reply_completed;
@@ -1222,7 +1276,7 @@ Pavel Shaydo, C<< <zwon at cpan.org> >>
 
 =head1 LICENSE AND COPYRIGHT
 
-Copyright 2011 Pavel Shaydo.
+Copyright 2011, 2012 Pavel Shaydo.
 
 This program is free software; you can redistribute it and/or modify it
 under the terms of either: the GNU General Public License as published

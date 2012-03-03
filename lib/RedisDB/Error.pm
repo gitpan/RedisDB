@@ -2,7 +2,7 @@ package RedisDB::Error;
 
 use strict;
 use warnings;
-our $VERSION = "0.31";
+our $VERSION = "0.32_1";
 $VERSION = eval $VERSION;
 
 =head1 NAME
@@ -64,7 +64,7 @@ Pavel Shaydo, C<< <zwon at cpan.org> >>
 
 =head1 LICENSE AND COPYRIGHT
 
-Copyright 2011 Pavel Shaydo.
+Copyright 2011, 2012 Pavel Shaydo.
 
 This program is free software; you can redistribute it and/or modify it
 under the terms of either: the GNU General Public License as published
