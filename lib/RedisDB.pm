@@ -1,8 +1,8 @@
 package RedisDB;
 
-use warnings;
 use strict;
-our $VERSION = "1.00";
+use warnings;
+our $VERSION = "1.01";
 $VERSION = eval $VERSION;
 
 use RedisDB::Error;
@@ -55,6 +55,11 @@ port to connect. Default: 6379
 
 you can connect to redis using UNIX socket. In this case instead of
 L</host> and L</port> you should specify I<path>.
+
+=item password
+
+Password, if redis server requires authentication. Alternatively you can use
+I<auth> method after connection.
 
 =item database
 
@@ -174,6 +179,20 @@ sub _connect {
     $self->{_callbacks}         = [];
     $self->{_subscription_loop} = 0;
     delete $self->{_server_version};
+
+    # authenticate
+    if ( $self->{password} ) {
+        $self->send_command(
+            "AUTH",
+            $self->{password},
+            sub {
+                my ( $self, $res ) = @_;
+                croak "$res" if ref $res eq 'RedisDB::Error';
+            }
+        );
+    }
+
+    # select database
     if ( $self->{database} ) {
         $self->send_command( "SELECT", $self->{database}, IGNORE_REPLY() );
     }
@@ -279,6 +298,11 @@ sub send_command {
     if ( $self->{_subscription_loop} ) {
         croak "only (UN)(P)SUBSCRIBE and QUIT allowed in subscription loop"
           unless $command =~ /^(P?(UN)?SUBSCRIBE|QUIT)$/;
+    }
+
+    # remember password
+    if ( $command eq 'AUTH' ) {
+        $self->{password} = $_[0];
     }
 
     # if SELECT has been successful, we should update database
