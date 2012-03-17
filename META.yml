@@ -1,19 +1,15 @@
 ---
 abstract: 'Perl extension to access redis database'
 author:
-  - 'Pavel Shaydo, C<< <zwon at cpan.org> >>'
   - 'Pavel Shaydo <zwon@cpan.org>'
 build_requires:
-  ExtUtils::MakeMaker: 6.59
   Test::Differences: 0.61
   Test::More: 0.96
   Test::Most: 0.22
-  Test::use::ok: 0
 configure_requires:
-  ExtUtils::MakeMaker: 6.59
-distribution_type: module
+  ExtUtils::MakeMaker: 0
 dynamic_config: 1
-generated_by: 'Module::Install version 1.06'
+generated_by: 'ExtUtils::MakeMaker version 6.62, CPAN::Meta::Converter version 2.120630'
 license: perl
 meta-spec:
   url: http://module-build.sourceforge.net/META-spec-v1.4.html
@@ -21,14 +17,13 @@ meta-spec:
 name: RedisDB
 no_index:
   directory:
-    - inc
     - t
+    - inc
 requires:
   Try::Tiny: 0
-  perl: 5.8.4
 resources:
-  bugtracker: http://github.com/trinitum/RedisDB/issues
-  homepage: http://github.com/trinitum/RedisDB
+  bugtracker: https://github.com/trinitum/RedisDB/issues
+  homepage: https://github.com/trinitum/RedisDB
   license: http://dev.perl.org/licenses/
   repository: git://github.com/trinitum/RedisDB
-version: 1.02_1
+version: 1.02_2
