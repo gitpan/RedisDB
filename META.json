@@ -29,7 +29,7 @@
       },
       "configure" : {
          "requires" : {
-            "ExtUtils::MakeMaker" : "0"
+            "ExtUtils::MakeMaker" : "6.3002"
          }
       },
       "runtime" : {
@@ -51,5 +51,5 @@
          "url" : "git://github.com/trinitum/RedisDB"
       }
    },
-   "version" : "1.02_2"
+   "version" : "1.02_3"
 }
