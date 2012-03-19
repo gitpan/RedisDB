@@ -20,10 +20,11 @@ no_index:
     - t
     - inc
 requires:
+  Encode: 2.1
   Try::Tiny: 0
 resources:
   bugtracker: https://github.com/trinitum/RedisDB/issues
   homepage: https://github.com/trinitum/RedisDB
   license: http://dev.perl.org/licenses/
   repository: git://github.com/trinitum/RedisDB
-version: 1.02_3
+version: 1.03

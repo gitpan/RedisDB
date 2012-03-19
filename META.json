@@ -34,11 +34,12 @@
       },
       "runtime" : {
          "requires" : {
+            "Encode" : "2.1",
             "Try::Tiny" : "0"
          }
       }
    },
-   "release_status" : "testing",
+   "release_status" : "stable",
    "resources" : {
       "bugtracker" : {
          "web" : "https://github.com/trinitum/RedisDB/issues"
@@ -51,5 +52,5 @@
          "url" : "git://github.com/trinitum/RedisDB"
       }
    },
-   "version" : "1.02_3"
+   "version" : "1.03"
 }
