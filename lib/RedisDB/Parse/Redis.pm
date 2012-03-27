@@ -2,7 +2,7 @@ package RedisDB::Parse::Redis;
 
 use strict;
 use warnings;
-our $VERSION = "1.03";
+our $VERSION = "1.04";
 $VERSION = eval $VERSION;
 
 use Encode qw();
@@ -12,7 +12,7 @@ use Try::Tiny;
 
 =head1 NAME
 
-RedisDB::Parse::Redis
+RedisDB::Parse::Redis - redis protocol parser for RedisDB
 
 =head1 SYNOPSIS
 

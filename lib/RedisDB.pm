@@ -2,7 +2,7 @@ package RedisDB;
 
 use strict;
 use warnings;
-our $VERSION = "1.03";
+our $VERSION = "1.04";
 $VERSION = eval $VERSION;
 
 use RedisDB::Error;
@@ -589,16 +589,15 @@ L<http://redis.io/commands>.
 =cut
 
 for my $command (@commands) {
-    my $uccom = uc $command;
-    $uccom =~ s/_/ /g;
+    my @uccom = split /_/, uc $command;
     no strict 'refs';
     *{ __PACKAGE__ . "::$command" } = sub {
         my $self = shift;
         if ( ref $_[-1] eq 'CODE' ) {
-            return $self->send_command( $uccom, @_ );
+            return $self->send_command( @uccom, @_ );
         }
         else {
-            return $self->execute( $uccom, @_ );
+            return $self->execute( @uccom, @_ );
         }
     };
 }
@@ -1069,7 +1068,9 @@ options timeouts will not work.
 
 =head1 ACKNOWLEDGEMENTS
 
-Thanks to Sanko Robinson and FunkyMonk for help with porting this module on Windows.
+Sanko Robinson and FunkyMonk helped me with porting this module to Windows.
+
+HIROSE Masaake fixed handling of commands containing space (like "CONFIG GET")
 
 =head1 AUTHOR
 
