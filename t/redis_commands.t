@@ -2,6 +2,8 @@ use Test::Most 0.22;
 use lib 't';
 use RedisServer;
 use RedisDB;
+use Digest::SHA qw(sha1_hex);
+use Time::HiRes qw(usleep);
 
 my $server = RedisServer->start;
 plan( skip_all => "Can't start redis-server" ) unless $server;
@@ -14,6 +16,7 @@ subtest "Hashes commands"           => \&cmd_hashes;
 subtest "Server info commands"      => \&cmd_server;
 subtest "Sets commands"             => \&cmd_sets;
 subtest "Ordered sets commands"     => \&cmd_zsets;
+subtest "Scripts"                   => \&cmd_scripts;
 
 sub cmd_keys_strings {
     $redis->flushdb;
@@ -43,6 +46,9 @@ sub cmd_keys_strings {
     is $redis->incrby( "counter", 77 ), 78, "INCRBY 77";
     is $redis->decr("counter"), 77, "DECR";
     is $redis->decrby( "counter", 35 ), 42, "DECRBY 35";
+    if ( $redis->version > 2.005 ) {
+        ok abs( $redis->incrbyfloat( "counter", -2.5 ) - 39.5 ) < 1e-7, "INCRBYFLOAT";
+    }
 
     eq_or_diff [ sort @{ $redis->keys('*') } ], [ sort "my first key", "counter" ], "KEYS";
 
@@ -83,6 +89,18 @@ sub cmd_keys_strings {
         is $redis->ttl("persistent"),     -1, "key will persist";
         sleep 3;
         is $redis->exists("expires"), 0, "expired key was deleted";
+    }
+
+    if ( $redis->version >= 2.005 ) {
+        is $redis->setex( "pexpires", 10, "in two seconds" ), "OK", "SETEX";
+        ok $redis->pttl("pexpires") > 1000, "PTTL > 1000";
+        is $redis->pexpire( "pexpires", 9000 ), 1, "PEXPIRE";
+        ok $redis->ttl("pexpires") < 10, "TTL < 10";
+        is $redis->psetex( "pexpires", 20_000, "20 seconds" ), "OK", "PSETEX";
+        ok $redis->ttl("pexpires") > 10, "TTL > 10";
+        is $redis->pexpireat( "pexpires", time * 1000 + 1100 ), 1, "PEXPIREAT";
+        usleep 1_200_000;
+        is $redis->get("pexpires"), undef, "expired";
     }
 }
 
@@ -147,6 +165,9 @@ sub cmd_hashes {
     is $redis->hincrby( 'thash', counter => 4 ), 7, "HINCRBY existing key";
     is $redis->hexists( 'thash', 'counter' ), 1, "HEXISTS == 1";
     is $redis->hget( 'thash', 'counter' ), 7, "HGET";
+    if ( $redis->version > 2.005 ) {
+        ok abs( $redis->hincrbyfloat( 'thash', 'counter', '-2.5' ) - 4.5 ) < 1e-7, "HINCRBYFLOAT";
+    }
     is $redis->hdel( 'thash', 'counter' ), 1, "HDEL";
 
     my %thash = @{ $redis->hgetall('thash') };
@@ -168,8 +189,12 @@ sub cmd_server {
     my $version = 0 + $1 + 0.001 * $2 + ( $3 ? 0.000001 * $3 : 0 );
     is '' . $redis->version, "$version", "Correct server version: $version";
 
-    if ($redis->version >= 2.0) {
+    if ( $redis->version >= 2.0 ) {
         eq_or_diff $redis->config_get("loglevel"), [qw(loglevel notice)], "CONFIG GET";
+    }
+    if ( $redis->version >= 2.005 ) {
+        my ( $sec, $ms ) = @{ $redis->time };
+        ok time - $sec < 2, "Server time is correct";
     }
 }
 
@@ -267,6 +292,26 @@ sub cmd_zsets {
         eq_or_diff cut_precision( $redis->zrange( "zunion", 0, -1, "WITHSCORES" ) ),
           [qw(A 1.5 B 2.4 C 3.3 D 4.2 E 5.1 F 6)], "ZUNIONSTORE result is correct";
     }
+}
+
+sub cmd_scripts {
+    plan skip_all => "This test requires redis-server >= 2.6" unless $redis->version >= 2.005;
+    $redis->flushdb;
+    is $redis->script_flush, 'OK', "SCRIPT FLUSH";
+
+    my $script1 = "return {1,2,{3,'test',ARGV[1]}}";
+    my $sha1    = sha1_hex($script1);
+    eq_or_diff $redis->eval( $script1, 0, 'passed' ), [ '1', '2', [ '3', 'test', 'passed' ] ], "EVAL";
+
+    my $script2 = "return redis.call('set',KEYS[1],ARGV[1])";
+    my $sha2    = sha1_hex($script2);
+    is $redis->eval( $script2, 1, 'eval', 'passed' ), "OK", "eval set";
+
+    my $script3 = "return redis.call('get',KEYS[1])";
+    my $sha3    = sha1_hex($script3);
+    eq_or_diff $redis->script_exists( $sha1, $sha3, $sha2 ), [ 1, 0, 1 ], "SCRIPT EXISTS";
+    is $redis->script_load($script3), $sha3, "SCRIPT LOAD";
+    eq_or_diff $redis->evalsha( $sha3, 1, 'eval' ), "passed", "EVALSHA";
 }
 
 done_testing;

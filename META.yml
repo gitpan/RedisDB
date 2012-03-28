@@ -3,6 +3,7 @@ abstract: 'Perl extension to access redis database'
 author:
   - 'Pavel Shaydo <zwon@cpan.org>'
 build_requires:
+  Digest::SHA: 0
   Test::Differences: 0.61
   Test::More: 0.96
   Test::Most: 0.22
@@ -27,4 +28,4 @@ resources:
   homepage: https://github.com/trinitum/RedisDB
   license: http://dev.perl.org/licenses/
   repository: git://github.com/trinitum/RedisDB
-version: 1.04
+version: 1.05

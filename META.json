@@ -22,6 +22,7 @@
    "prereqs" : {
       "build" : {
          "requires" : {
+            "Digest::SHA" : "0",
             "Test::Differences" : "0.61",
             "Test::More" : "0.96",
             "Test::Most" : "0.22"
@@ -52,5 +53,5 @@
          "url" : "git://github.com/trinitum/RedisDB"
       }
    },
-   "version" : "1.04"
+   "version" : "1.05"
 }
