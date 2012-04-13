@@ -23,9 +23,10 @@ no_index:
 requires:
   Encode: 2.1
   Try::Tiny: 0
+  perl: 5.008004
 resources:
   bugtracker: https://github.com/trinitum/RedisDB/issues
   homepage: https://github.com/trinitum/RedisDB
   license: http://dev.perl.org/licenses/
   repository: git://github.com/trinitum/RedisDB
-version: 1.05
+version: 1.06

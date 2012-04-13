@@ -36,7 +36,8 @@
       "runtime" : {
          "requires" : {
             "Encode" : "2.1",
-            "Try::Tiny" : "0"
+            "Try::Tiny" : "0",
+            "perl" : "5.008004"
          }
       }
    },
@@ -53,5 +54,5 @@
          "url" : "git://github.com/trinitum/RedisDB"
       }
    },
-   "version" : "1.05"
+   "version" : "1.06"
 }

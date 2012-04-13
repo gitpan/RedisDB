@@ -2,13 +2,14 @@ package RedisDB::Parse::Redis;
 
 use strict;
 use warnings;
-our $VERSION = "1.05";
+our $VERSION = "1.06";
 $VERSION = eval $VERSION;
 
 use Encode qw();
 use RedisDB::Error;
 use Carp;
 use Try::Tiny;
+use Scalar::Util qw(weaken);
 
 =head1 NAME
 
@@ -48,6 +49,7 @@ sub new {
         _callbacks => [],
         _buffer    => '',
     };
+    weaken( $self->{redisdb} );
     return bless $self, $class;
 }
 
