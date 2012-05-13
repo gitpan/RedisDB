@@ -7,6 +7,7 @@ my $server = RedisServer->start;
 plan( skip_all => "Can't start redis-server" ) unless $server;
 my $redis = RedisDB->new( host => 'localhost', port => $server->{port} );
 diag("Testing against redis-server " . $redis->info->{redis_version});
+plan( skip_all => "test requires redis-server version 2.0.0 and above" ) if $redis->version < 2;
 $redis->send_command('PING');
 my $res = $redis->get_reply;
 is $res, 'PONG', "Got PONG";
@@ -54,7 +55,7 @@ $redis->send_command('GET', 'key A');
 sleep 1;
 ok $redis->reply_ready, "Got some replies";
 is $redis->replies_to_fetch, 5, "5 commands in flight";
-eq_or_diff [ $redis->get_all_replies ], [ 'OK', '1', '2', [ qw(B1 B2) ], 'value A' ], "Got all replies";
+eq_or_diff [ $redis->get_all_replies ], [ 'OK', 1, 2, [ qw(B1 B2) ], 'value A' ], "Got all replies";
 
 # Test callbacks
 my @replies;

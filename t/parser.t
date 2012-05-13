@@ -16,6 +16,8 @@ subtest "Bulk reply" => \&bulk_reply;
 
 subtest "Multi-bulk reply" => \&multi_bulk_reply;
 
+subtest "Deep nested multi-bulk reply" => \&nested_mb_reply;
+
 subtest "Transaction" => \&transaction;
 
 done_testing;
@@ -136,6 +138,26 @@ sub multi_bulk_reply {
     eq_or_diff $replies[0], [qw(subscribe foo 2)], 'subscribe foo :2';
 }
 
+sub nested_mb_reply {
+    @replies = ();
+    $parser->add_callback( \&cb );
+    $parser->add( "*3${lf}"
+          . "*4${lf}:5${lf}:1336734898${lf}:43${lf}"
+          . "*2${lf}\$3${lf}get${lf}\$4${lf}test${lf}"
+          . "*4${lf}:4${lf}:1336734895${lf}:175${lf}"
+          . "*3${lf}\$3${lf}set${lf}\$4${lf}test${lf}\$2${lf}43${lf}" );
+    is @replies, 0, 'waits for the last chunk';
+    $parser->add(
+        "*4${lf}:3${lf}:1336734889${lf}:20${lf}" . "*2${lf}\$7${lf}slowlog${lf}\$3${lf}len${lf}" );
+    is @replies, 1, "Got a reply";
+    my $exp = [
+        [ 5, 1336734898, 43,  [ 'get',     'test' ], ],
+        [ 4, 1336734895, 175, [ 'set',     'test', '43' ], ],
+        [ 3, 1336734889, 20,  [ 'slowlog', 'len' ], ],
+    ];
+    eq_or_diff shift(@replies), $exp, 'got correct nested multi-bulk reply';
+}
+
 sub transaction {
     @replies = ();
     $parser->add_callback( \&cb ) for 1 .. 4;
@@ -147,7 +169,7 @@ sub transaction {
     is @replies, 1, 'Got a reply';
     eq_or_diff(
         shift(@replies),
-        [ qw(OK 5 6 7 8), [qw(this is a list)], 'value' ],
+        [ 'OK', 5, 6, 7, 8, [qw(this is a list)], 'value' ],
         "Successfuly parsed a transaction reply"
     );
     $parser->add(
@@ -156,7 +178,7 @@ sub transaction {
     is @replies, 1, 'Got a reply';
     eq_or_diff(
         shift(@replies),
-        [ qw(OK 1 2 3 4), [qw(this is a list)] ],
+        [ 'OK', 1, 2, 3, 4, [qw(this is a list)] ],
         "Parsed with list in the end too"
     );
     $parser->add( "*4$lf*0$lf+OK$lf*-1$lf*2$lf\$2${lf}aa$lf\$2${lf}bb$lf" );

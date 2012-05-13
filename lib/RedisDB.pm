@@ -2,7 +2,7 @@ package RedisDB;
 
 use strict;
 use warnings;
-our $VERSION = "1.07";
+our $VERSION = "1.08";
 $VERSION = eval $VERSION;
 
 use RedisDB::Error;
@@ -544,7 +544,7 @@ my @commands = qw(
   rpush	rpushx	sadd	save	scard	script_exists   script_flush    script_kill
   script_load   sdiff	sdiffstore	select	set
   setbit	setex	setnx	setrange	sinter	sinterstore
-  sismember	slaveof	smembers	smove	sort	spop	srandmember
+  sismember	slaveof	slowlog smembers	smove	sort	spop	srandmember
   srem	strlen	sunion	sunionstore	sync	time    ttl	type	unwatch watch
   zadd	zcard
   zcount	zincrby	zinterstore	zrange	zrangebyscore	zrank	zrem
@@ -582,9 +582,9 @@ mset, msetnx, persist, pexpire, pexpireat, psetex, pttl, ping, publish, quit,
 randomkey, rename, renamenx, rpop, rpoplpush, rpush, rpushx, sadd, save, scard,
 script_exists,   script_flush,    script_kill, script_load,   sdiff,
 sdiffstore, select, set, setbit, setex, setnx, setrange, sinter, sinterstore,
-sismember, slaveof, smembers, smove, sort, spop, srandmember, srem, strlen,
-sunion, sunionstore, sync, time,    ttl, type, unwatch, watch, zadd, zcard,
-zcount, zincrby, zinterstore, zrange, zrangebyscore, zrank, zrem,
+sismember, slaveof, slowlog, smembers, smove, sort, spop, srandmember, srem,
+strlen, sunion, sunionstore, sync, time,    ttl, type, unwatch, watch, zadd,
+zcard, zcount, zincrby, zinterstore, zrange, zrangebyscore, zrank, zrem,
 zremrangebyrank,   zremrangebyscore, zrevrange, zrevrangebyscore, zrevrank,
 zscore, zunionstore
 
@@ -1070,6 +1070,8 @@ Known bugs are:
 
 Timeout support is OS dependent. If OS doesn't support SO_SNDTIMEO and SO_RCVTIMEO
 options timeouts will not work.
+
+QUIT command doesn't work with redis-server before version 2.0
 
 =head1 ACKNOWLEDGEMENTS
 

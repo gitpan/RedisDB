@@ -2,7 +2,7 @@ package RedisDB::Parse::Redis;
 
 use strict;
 use warnings;
-our $VERSION = "1.07";
+our $VERSION = "1.08";
 $VERSION = eval $VERSION;
 
 use Encode qw();
@@ -173,7 +173,7 @@ sub _parse_reply {
         elsif ( $self->{_parse_state} == $READ_NUMBER ) {
             return unless defined( my $line = $self->_read_line );
             die "Received invalid integer reply :$line" unless $line =~ /^-?[0-9]+$/;
-            return 1 if $self->_reply_completed($line);
+            return 1 if $self->_reply_completed( 0 + $line );
         }
         elsif ( $self->{_parse_state} == $READ_BULK_LEN ) {
             return unless defined( my $len = $self->_read_line );
@@ -231,7 +231,7 @@ sub _parse_reply {
             elsif ( $char eq '*' ) {
                 $self->{_parse_state} = $READ_MBLK_LEN;
                 $self->{_parse_mblk_level}++;
-                $self->{_parse_mblk_store} = [ $self->{_parse_mblk_len}, $self->{_parse_reply} ];
+                push @{$self->{_parse_mblk_store}}, [ $self->{_parse_mblk_len}, $self->{_parse_reply} ];
             }
             else {
                 die "Invalid multi-bulk reply. Expected [\$:+-*] but got $char";
@@ -267,11 +267,8 @@ sub _mblk_item {
     elsif ( --$self->{_parse_mblk_level} ) {
         my $res = $self->{_parse_reply};
         ( $self->{_parse_mblk_len}, $self->{_parse_reply} ) =
-          @{ delete $self->{_parse_mblk_store} };
-        $self->{_parse_mblk_len}--;
-        push @{ $self->{_parse_reply} }, $res;
-        $self->{_parse_state} = $WAIT_BUCKS;
-        $repeat = $self->{_parse_mblk_len} > 0;
+          @{ pop @{ $self->{_parse_mblk_store} } };
+        $repeat = $self->_mblk_item($res);
     }
     else {
         $repeat = 0;
