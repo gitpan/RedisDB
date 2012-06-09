@@ -2,7 +2,7 @@ package RedisDB;
 
 use strict;
 use warnings;
-our $VERSION = "1.99_01";
+our $VERSION = "1.99_02";
 $VERSION = eval $VERSION;
 
 use RedisDB::Error;
@@ -31,9 +31,7 @@ RedisDB - Perl extension to access redis database
 =head1 DESCRIPTION
 
 B<WARNING: this is a development version and is not recommended for production
-use.  This version implements XS version of the parser. Support for utf8 flag
-is not currently implemented and I'm in doubt if I should drop it altogether,
-if you're using it let me know.>
+use.  This version implements XS version of the parser.>
 
 This module provides interface to access redis key-value store. It
 transparently handles disconnects and forks. It supports transactions,
@@ -467,7 +465,8 @@ sub get_reply {
 
 =head2 $self->get_all_replies
 
-Wait for the replies to all the commands sent and return them as a list.
+Wait for the replies to all the commands sent to server. Return a list of
+replies to the commands for which callback was not set.
 
 =cut
 

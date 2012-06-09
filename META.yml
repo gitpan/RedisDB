@@ -30,4 +30,4 @@ resources:
   homepage: https://github.com/trinitum/RedisDB
   license: http://dev.perl.org/licenses/
   repository: git://github.com/trinitum/RedisDB
-version: 1.99_01
+version: 1.99_02
