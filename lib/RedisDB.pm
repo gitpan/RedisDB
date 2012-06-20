@@ -2,7 +2,7 @@ package RedisDB;
 
 use strict;
 use warnings;
-our $VERSION = "1.99_02";
+our $VERSION = "1.99_03";
 $VERSION = eval $VERSION;
 
 use RedisDB::Error;
@@ -323,9 +323,8 @@ sub send_command {
 
     $self->_connect unless $self->{_socket} and $self->{_pid} == $$;
 
-    # Here we reading received data and parsing it,
-    # but the main purpose is to check if connection is still alive
-    # and reconnect if not
+    # Here we are reading received data and parsing it,
+    # and at the same time checking if the connection is still alive
     $self->_recv_data_nb;
 
     my $request = $self->{_parser}->build_request( $command, @_ );
@@ -536,15 +535,15 @@ sub version {
 }
 
 my @commands = qw(
-  append	auth	bgrewriteaof	bgsave	blpop	brpop   brpoplpush	config_get
+  append	auth	bgrewriteaof	bgsave	blpop	brpop   brpoplpush	config	config_get
   config_set	config_resetstat	dbsize	debug_object	debug_segfault
-  decr	decrby	del	echo	eval    evalsha exists	expire	expireat	flushall
+  decr	decrby	del	dump	echo	eval    evalsha exists	expire	expireat	flushall
   flushdb	get	getbit	getrange	getset	hdel	hexists	hget	hgetall
   hincrby	hincrbyfloat	hkeys	hlen	hmget	hmset	hset	hsetnx	hvals	incr	incrby
   incrbyfloat	keys	lastsave	lindex	linsert	llen	lpop	lpush	lpushx
-  lrange	lrem	lset	ltrim	mget	move	mset	msetnx	persist
-  pexpire	pexpireat	psetex	pttl	ping
-  publish	quit	randomkey	rename	renamenx	rpop	rpoplpush
+  lrange	lrem	lset	ltrim	mget	migrate	move	mset	msetnx	object	object_refcount
+  object_encoding	object_idletime	persist	pexpire	pexpireat	psetex	pttl	ping
+  publish	quit	randomkey	rename	renamenx	restore	rpop	rpoplpush
   rpush	rpushx	sadd	save	scard	script_exists   script_flush    script_kill
   script_load   sdiff	sdiffstore	select	set
   setbit	setex	setnx	setrange	sinter	sinterstore
@@ -656,11 +655,12 @@ constructor, module will encode all strings to UTF-8 before sending them to
 server, and will decode all strings received from server from UTF-8. This has
 following repercussions you should be aware off: first, you can't store binary
 data on server with this option on, it would be treated as a sequence of latin1
-characters, and would be converted into a corresponding sequence of UTF-8 encoded
-characters; second, if data returned by the server is not a valid UTF-8 encoded
-string, the module will croak, and you will have to reinitialize the
-connection. Generally, I would recommend to write a wrapper around L<RedisDB> instead of
-setting I<utf8> option.
+characters, and would be converted into a corresponding sequence of UTF-8
+encoded characters; second, if data returned by the server is not a valid UTF-8
+encoded string, the module will croak, and you will have to reinitialize the
+connection. The parser only checks for invalid UTF-8 byte sequences, it doesn't
+check if input contains invalid code points. Generally, using this option is
+not recommended.
 
 =cut
 
