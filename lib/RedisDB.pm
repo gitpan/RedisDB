@@ -2,7 +2,7 @@ package RedisDB;
 
 use strict;
 use warnings;
-our $VERSION = "2.05";
+our $VERSION = "2.06";
 $VERSION = eval $VERSION;
 
 use RedisDB::Error;
@@ -436,7 +436,7 @@ sub get_reply {
           or $self->{_to_be_fetched}
           or $self->{_subscription_loop};
     croak "You can't read reply in child process" unless $self->{_pid} == $$;
-    while ( not @{$self->{_replies}} ) {
+    while ( not @{ $self->{_replies} } ) {
         my $ret = $self->{_socket}->recv( my $buffer, 131072 );
         unless ( defined $ret ) {
             next if $! == EINTR;
@@ -640,7 +640,7 @@ answer.  Croaks in case of the error.
 
 sub shutdown {
     my $self = shift;
-    $self->send_command_cb('SHUTDOWN', @_);
+    $self->send_command_cb( 'SHUTDOWN', @_ );
     return;
 }
 
@@ -851,7 +851,7 @@ sub subscription_loop {
     $self->{_psubscribed}       = {};
     $self->{_subscription_cb}   = $args{default_callback};
     $self->{_subscription_loop} = 1;
-    $self->{_parser}->set_default_callback(\&_queue);
+    $self->{_parser}->set_default_callback( \&_queue );
 
     if ( $args{subscribe} ) {
         while ( my $channel = shift @{ $args{subscribe} } ) {
@@ -870,34 +870,25 @@ sub subscription_loop {
     croak "You must subscribe at least to one channel"
       unless ( keys %{ $self->{_subscribed} } or keys %{ $self->{_psubscribed} } );
 
-    while ( my $msg = $self->get_reply ) {
+    while ( $self->{_subscription_loop} ) {
+        my $msg = $self->get_reply;
         confess "Expected multi-bulk reply, but got $msg" unless ref $msg;
         if ( $msg->[0] eq 'message' ) {
-            $self->{_subscribed}{ $msg->[1] }( $self, $msg->[1], undef, $msg->[2] );
+            $self->{_subscribed}{ $msg->[1] }( $self, $msg->[1], undef, $msg->[2] )
+              if $self->{_subscribed}{ $msg->[1] };
         }
         elsif ( $msg->[0] eq 'pmessage' ) {
-            $self->{_psubscribed}{ $msg->[1] }( $self, $msg->[2], $msg->[1], $msg->[3] );
+            $self->{_psubscribed}{ $msg->[1] }( $self, $msg->[2], $msg->[1], $msg->[3] )
+              if $self->{_psubscribed}{ $msg->[1] };
         }
-        elsif ( $msg->[0] eq 'subscribe' or $msg->[0] eq 'psubscribe' ) {
+        elsif ( $msg->[0] =~ /^p?(un)?subscribe/ ) {
 
             # ignore
-        }
-        elsif ( $msg->[0] eq 'unsubscribe' ) {
-            delete $self->{_subscribed}{ $msg->[1] };
-
-            # TODO think about it, not exactly correct
-            last unless $msg->[2] or %{ $self->{_psubscribed} };
-        }
-        elsif ( $msg->[0] eq 'punsubscribe' ) {
-            delete $self->{_psubscribed}{ $msg->[1] };
-            last unless $msg->[2] or %{ $self->{_subscribed} };
         }
         else {
             confess "Got unknown reply $msg->[0] in subscription mode";
         }
     }
-    $self->{_to_be_fetched} = 0;
-    $self->_connect;
     return;
 }
 
@@ -910,7 +901,10 @@ default callback will be used.
 
 sub subscribe {
     my ( $self, $channel, $callback ) = @_;
-    croak "Must be in subscription loop to subscribe" unless $self->{_subscription_loop};
+    unless ( $self->{subscription_loop} ) {
+        $self->{_subscription_loop} = -1;
+        $self->{_parser}->set_default_callback( \&_queue );
+    }
     croak "Subscribe to what channel?" unless length $channel;
     $callback ||= $self->{_subscription_cb}
       or croak "Callback for $channel not specified, neither default callback defined";
@@ -928,7 +922,10 @@ callback will be used.
 
 sub psubscribe {
     my ( $self, $channel, $callback ) = @_;
-    croak "Must be in subscription loop to subscribe" unless $self->{_subscription_loop};
+    unless ( $self->{subscription_loop} ) {
+        $self->{_subscription_loop} = -1;
+        $self->{_parser}->set_default_callback( \&_queue );
+    }
     croak "Subscribe to what channel?" unless length $channel;
     $callback ||= $self->{_subscription_cb}
       or croak "Callback for $channel not specified, neither default callback defined";
@@ -946,7 +943,20 @@ unsubscribe from all the channels.
 
 sub unsubscribe {
     my $self = shift;
-    return $self->send_command( "UNSUBSCRIBE", @_ );
+    if (@_) {
+        delete $self->{_subscribed}{$_} for @_;
+    }
+    else {
+        $self->{_subscribed} = {};
+    }
+    if ( %{ $self->{_subscribed} } or %{ $self->{_psubscribed} } ) {
+        return $self->send_command( "UNSUBSCRIBE", @_ );
+    }
+    else {
+        delete $self->{_subscription_loop};
+        $self->{_to_be_fetched} = 0;
+        return $self->_connect;
+    }
 }
 
 =head2 $self->punsubscribe([@patterns])
@@ -958,7 +968,22 @@ unsubscribe from all the channels to which you subscribed using I<psubscribe>.
 
 sub punsubscribe {
     my $self = shift;
-    return $self->send_command( "PUNSUBSCRIBE", @_ );
+    if (@_) {
+        delete $self->{_psubscribed}{$_} for @_;
+    }
+    else {
+        $self->{_psubscribed} = {};
+    }
+    if (   %{ $self->{_subscribed} }
+        or %{ $self->{_psubscribed} } )
+    {
+        return $self->send_command( "PUNSUBSCRIBE", @_ );
+    }
+    else {
+        delete $self->{_subscription_loop};
+        $self->{_to_be_fetched} = 0;
+        return $self->_connect;
+    }
 }
 
 =head2 $self->subscribed
