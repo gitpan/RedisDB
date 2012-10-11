@@ -114,24 +114,34 @@ sub def_cb {
 }
 
 my $pub = RedisDB->new( host => 'localhost', port => $server->{port} );
-$redis->subscribe('baz', sub { $_[0]->unsubscribe('baz') });
-$redis->psubscribe('un*', sub { $_[0]->punsubscribe });
-my $rep =$redis->get_reply;
+my $sub = RedisDB->new( host => 'localhost', port => $server->{port} );
+$sub->subscribe('baz', sub { $_[0]->unsubscribe('baz') });
+$sub->psubscribe('un*', sub { $_[0]->punsubscribe });
+my $rep =$sub->get_reply;
 is $rep->[0], 'subscribe', "got subscribe reply";
-$rep =$redis->get_reply;
+$rep =$sub->get_reply;
 is $rep->[0], 'psubscribe', "got psubscribe reply";
-dies_ok { $redis->get('key') } "get is not allowed in subscription mode";
+dies_ok { $sub->get('key') } "get is not allowed in subscription mode";
 
 $pub->publish('unexpected', 'msg 1');
 $pub->publish('baz', 'msg 2');
 
-$rep = $redis->get_reply;
-eq_or_diff $rep, ['pmessage', 'un*', 'unexpected', 'msg 1'], "got msg 1 on unexpected channel";
-$rep = $redis->get_reply;
-eq_or_diff $rep, ['message', 'baz', 'msg 2'], "got msg 2 on baz channel";
+$rep = $sub->get_reply;
+eq_or_diff $rep, ['pmessage', 'un*', 'unexpected', 'msg 1'], "got msg 1 from the unexpected channel";
+$rep = $sub->get_reply;
+eq_or_diff $rep, ['message', 'baz', 'msg 2'], "got msg 2 from the baz channel";
 
-$redis->unsubscribe;
-$redis->punsubscribe;
+{
+    # this also checks how recv in get_reply deals with interrupts
+    local $SIG{ALRM} = sub { $pub->publish( 'baz', 'msg 3' ); delete $SIG{ALRM}; alarm 3; };
+    alarm 1;
+    $rep = $sub->get_reply;
+    alarm 0;
+    eq_or_diff $rep, [ 'message', 'baz', 'msg 3' ], "got msg 3 from the baz channel";
+}
+
+$sub->unsubscribe;
+$sub->punsubscribe;
 
 done_testing;
 END { $redis->shutdown if $redis; }
