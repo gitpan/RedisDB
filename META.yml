@@ -7,6 +7,7 @@ build_requires:
   Test::Differences: 0.61
   Test::More: 0.96
   Test::Most: 0.22
+  Test::TCP: 1.17
 configure_requires:
   ExtUtils::CBuilder: 0.27
   ExtUtils::MakeMaker: 6.3002
@@ -30,4 +31,4 @@ resources:
   homepage: https://github.com/trinitum/RedisDB
   license: http://dev.perl.org/licenses/
   repository: git://github.com/trinitum/RedisDB
-version: 2.09_01
+version: 2.09_02

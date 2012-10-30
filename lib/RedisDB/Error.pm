@@ -2,7 +2,7 @@ package RedisDB::Error;
 
 use strict;
 use warnings;
-our $VERSION = "2.09_01";
+our $VERSION = "2.09_02";
 $VERSION = eval $VERSION;
 
 =head1 NAME
@@ -49,6 +49,9 @@ Return error message. Also you can just use object in string context.
 sub as_string {
     return shift->{message};
 }
+
+package RedisDB::Error::EAGAIN;
+our @ISA = qw(RedisDB::Error);
 
 1;
 

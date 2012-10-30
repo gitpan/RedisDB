@@ -2,7 +2,7 @@ package RedisDB;
 
 use strict;
 use warnings;
-our $VERSION = "2.09_01";
+our $VERSION = "2.09_02";
 $VERSION = eval $VERSION;
 
 use RedisDB::Error;
@@ -69,12 +69,19 @@ connecting to the server. Database changes when you sending I<select> command
 to the server. You can get current database using I<selected_database> method.
 Default value is 0.
 
+=item raise_error
+
+By default if redis-server returned error reply, I<get_reply> method throws
+an exception of L<RedisDB::Error> type, if you set this parameter to false it
+will return error object instead.
+
 =item timeout
 
 IO timeout. With this option set, if IO operation has taken more than specified
-number of seconds, module will croak. Note, that some OSes do not support
-SO_RCVTIMEO, and SO_SNDTIMEO socket options, in this case timeout will not
-work.
+number of seconds, module will croak or return L<RedisDB::Error::EAGAIN> error
+object depending on L</raise_error> setting. Note, that some OSes do not
+support SO_RCVTIMEO, and SO_SNDTIMEO socket options, in this case timeout will
+not work.
 
 =item utf8
 
@@ -87,6 +94,18 @@ from UTF-8. See L</"UTF-8 SUPPORT">.
 by default I<new> establishes connection to the server. If this parameter is
 set, then connection will be established when you will send a command to the
 server.
+
+=item reconnect_attempts
+
+this parameter allows you to specify how many attempts to (re)connect to the
+server should be made before returning error. Default value is 1, set to -1 if
+module should try to reconnect indefinetely.
+
+=item reconnect_delay_max
+
+module makes a delay before each new attempt to connect. Delay increases with
+each new attempt. This parameter allows you to specify maximum delay between
+attempts to reconnect. Default value is 10.
 
 =back
 
@@ -101,11 +120,12 @@ sub new {
     }
     $self->{port} ||= 6379;
     $self->{host} ||= 'localhost';
+    $self->{raise_error}    = 1 unless exists $self->{raise_error};
     $self->{_replies}       = [];
     $self->{_to_be_fetched} = 0;
     $self->{database}            ||= 0;
-    $self->{reconnect_attempts}  ||= 5;
-    $self->{reconnect_delay_max} ||= 8;
+    $self->{reconnect_attempts}  ||= 1;
+    $self->{reconnect_delay_max} ||= 10;
     $self->_init_parser;
     $self->_connect unless $self->{lazy};
     return $self;
@@ -118,9 +138,10 @@ sub _init_parser {
 
 =head2 $self->execute($command, @arguments)
 
-send a command to the server and return the result. It will throw the exception
-if the server returns an error. It may be more convenient to use instead of
-this method wrapper named after the corresponding redis command. E.g.:
+send a command to the server and return the result. It will throw an exception
+if the server returns an error or return L<RedisDB::Error> depending on
+L</raise_error> parameter. It may be more convenient to use instead of this
+method wrapper named after the corresponding redis command. E.g.:
 
     $redis->execute('set', key => 'value');
     # is the same as
@@ -439,7 +460,9 @@ sub mainloop {
 
 =head2 $self->get_reply
 
-receive reply from the server. Method croaks if the server returns an error.
+Receive and return reply from the server. If the server returned an error,
+method throws L<RedisDB::Error> exception or returns L<RedisDB::Error> object,
+depending on I<raise_error> parameter, see I<new>.
 
 =cut
 
@@ -455,6 +478,15 @@ sub get_reply {
         my $ret = $self->{_socket}->recv( my $buffer, 131072 );
         unless ( defined $ret ) {
             next if $! == EINTR or $! == 0;
+            if ( $! == EINTR or $! == EWOULDBLOCK ) {
+                my $err = RedisDB::Error::EAGAIN->new("$!");
+                if ( $self->{raise_error} ) {
+                    die $err;
+                }
+                else {
+                    return $err;
+                }
+            }
             confess "Error reading reply from server: $!";
         }
         if ( $buffer ne '' ) {
@@ -470,7 +502,7 @@ sub get_reply {
     }
 
     my $res = shift @{ $self->{_replies} };
-    croak "$res" if ref $res eq 'RedisDB::Error';
+    croak "$res" if ref $res eq 'RedisDB::Error' and $self->{raise_error};
     return $res;
 }
 
@@ -680,16 +712,18 @@ not recommended.
 
 =head1 ERROR HANDLING
 
-If an error happens which the module can't handle, it will croak. It may
-happen as a result of a network error, or invalid data encoding, or if the
-server returned an error reply. In some cases the RedisDB object after throwing
-an exception will be left in inconsistant state. If you want to continue using
-the object after getting an exception, you should invoke the
-L</reset_connection> method on it. This will drop current connection and all
-outstanding requests, so the object will return to the same state it was just
-after creation with the L</new> method. If the connection was in subscription
-mode, you will have to restore all the subscriptions, if it was in the middle
-of transaction, you will have to start the transaction again.
+If an error happens which the module can't handle, it will throw an exception.
+It may happen as a result of a network error or invalid data encoding. Also
+module will throw an exception of the L<RedisDB::Error> type if the server
+returned an error reply and I<raise_error> parameter is set to true in the
+constructor (which is by default). After throwing an exception other than the
+L<RedisDB::Error> the RedisDB object will be left in inconsistant state. If you
+want to continue using the object after getting such an exception, you should
+invoke the L</reset_connection> method on it. This will drop current connection
+and all outstanding requests, so the object will return to the same state it
+was just after creation with the L</new> method. If the connection was in
+subscription mode, you will have to restore all the subscriptions, if it was in
+the middle of transaction, you will have to start the transaction again.
 
 =cut
 
@@ -699,12 +733,12 @@ Redis server may close a connection if it was idle for some time, also the
 connection may be closed in case when redis-server was restarted. RedisDB
 restores a connection to the server, but only if no data was lost as a result
 of the disconnect. E.g. if the client was idle for some time and the redis
-server closed the connection, it will be transparently restored on sending next
-command. If you sent a command and the server has closed the connection without
-sending a complete reply, the connection will not be restored and the module
-will throw an exception. Also the module will throw an exception if the
-connection was closed in the middle of a transaction or while you're in a
-subscription loop.
+server closed the connection, it will be transparently restored when you send a
+command next time.  If you sent a command and the server has closed the
+connection without sending a complete reply, the connection will not be
+restored and the module will throw an exception. Also the module will throw an
+exception if the connection was closed in the middle of a transaction or while
+you're in a subscription loop.
 
 =cut
 
@@ -1041,11 +1075,11 @@ Transactions allow you to execute a sequence of commands in a single step. In
 order to start a transaction you should use the I<multi> method.  After you
 have entered a transaction all the commands you issue are queued, but not
 executed till you call the I<exec> method. Tipically these commands return
-string "QUEUED" as result, but if there is an error in e.g. number of
+string "QUEUED" as a result, but if there is an error in e.g. number of
 arguments, they may croak. When you call exec, all the queued commands will be
 executed and exec will return a list of results for every command in the
-transaction. If any command has failed, exec will croak. If instead of I<exec>
-you call I<discard>, all scheduled commands will be canceled.
+transaction. If instead of I<exec> you call I<discard>, all scheduled commands
+will be canceled.
 
 You can set some keys as watched. If any whatched key has been changed by
 another client before you called exec, the transaction will be discarded and
@@ -1105,7 +1139,7 @@ __END__
 
 =head1 SEE ALSO
 
-L<Redis>, L<Redis::hiredis>, L<AnyEvent::Redis>
+L<Redis>, L<Redis::hiredis>, L<Redis::Client>, L<AnyEvent::Redis>, L<AnyEvent::Redis::RipeRedis>
 
 =head1 WHY ANOTHER ONE
 
