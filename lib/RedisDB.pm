@@ -2,14 +2,14 @@ package RedisDB;
 
 use strict;
 use warnings;
-our $VERSION = "2.10";
+our $VERSION = "2.11";
 $VERSION = eval $VERSION;
 
 use RedisDB::Error;
 use RedisDB::Parse::Redis;
 use IO::Socket::INET;
 use IO::Socket::UNIX;
-use Socket qw(MSG_DONTWAIT SO_RCVTIMEO SO_SNDTIMEO);
+use Socket qw(MSG_DONTWAIT MSG_NOSIGNAL SO_RCVTIMEO SO_SNDTIMEO);
 use POSIX qw(:errno_h);
 use Config;
 use Carp;
@@ -226,7 +226,25 @@ sub _connect {
     }
 
     if ( $self->{timeout} ) {
-        my $timeout = pack( 'L!L!', $self->{timeout}, 0 );
+        my $timeout;
+        if ( $Config{osname} eq 'netbsd' and $Config{osvers} >= 6.0 and $Config{longsize} == 4 ) {
+            if ( defined $Config{use64bitint} ) {
+                $timeout = pack( 'QL', $self->{timeout}, 0 );
+            }
+            else {
+                $timeout = pack(
+                    'LLL',
+                    (
+                        $Config{byteorder} eq '1234'
+                        ? ( $self->{timeout}, 0, 0 )
+                        : ( 0, $self->{timeout}, 0 )
+                    )
+                );
+            }
+        }
+        else {
+            $timeout = pack( 'L!L!', $self->{timeout}, 0 );
+        }
         try {
             defined $self->{_socket}->sockopt( SO_RCVTIMEO, $timeout )
               or die "Can't set timeout: $!";
@@ -341,6 +359,8 @@ I<reply_ready>, I<get_reply>, or I<get_all_replies>.
 
 =cut
 
+my $NOSIGNAL = try { MSG_NOSIGNAL } || 0;
+
 sub send_command {
     my $self = shift;
 
@@ -381,7 +401,11 @@ sub send_command {
     $self->_recv_data_nb;
 
     my $request = $self->{_parser}->build_request( $command, @_ );
-    defined $self->{_socket}->send($request) or confess "Can't send request to server: $!";
+    {
+        local $SIG{PIPE} = 'IGNORE' unless $NOSIGNAL;
+        defined $self->{_socket}->send( $request, $NOSIGNAL )
+          or confess "Can't send request to server: $!";
+    }
     $self->{_parser}->add_callback($callback);
     return 1;
 }
