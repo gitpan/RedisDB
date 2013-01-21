@@ -58,10 +58,30 @@ sub cmd_keys_strings {
         is $redis->getbit( "bits", 1 ), 1, "GETBIT 1";
         is $redis->setbit( "bits", 2, 1 ), 0, "SETBIT 2";
         is $redis->getbit( "bits", 2 ), 1, "GETBIT 2";
+        if ( $redis->version >= 2.006 ) {
+            is $redis->bitcount("bits"), 5, "BITCOUNT";
+            is $redis->bitop( "NOT", "bits", "bits" ), 1, "BITOP NOT";
+            is $redis->bitcount("bits"), 3, "BITCOUNT";
+            is $redis->set( "bits1", "\x75" ),     "OK", "set bits1 to \\x75";
+            is $redis->set( "bits2", "\000\x55" ), "OK", "set bits2 to \\000\\x55";
+            is $redis->bitop( "OR", "bits3", "bits1", "bits2" ), 2, "BITOP OR";
+            is $redis->get("bits3"), "\x75\x55", "bits3 == bits1 | bits2";
+            is $redis->set( "bits4", "\xf0\xf0" ), "OK", "set bits4 to \\xf0\\xf0";
+            is $redis->bitop( "AND", "bits5", "bits3", "bits4" ), 2, "BITOP AND";
+            is $redis->get("bits5"), "\x70\x50", "bits5 == bits3 & bits4";
+            is $redis->bitop( "XOR", "bits6", "bits3", "bits4" ), 2, "BITOP XOR";
+            is $redis->get("bits6"), "\x85\xa5", "bits6 == bits3 ^ bits4";
+        }
+        else {
+            diag "Skipped tests for redis >= 2.6";
+        }
         $redis->set( "range_test", "test getrange" );
         is $redis->getrange( "range_test", 5, -1 ), "getrange", "GETRANGE";
         is $redis->setrange( "range_test", 5, "set" ), 13, "SETRANGE";
         is $redis->get("range_test"), "test setrange", "SETRANGE result is correct";
+    }
+    else {
+        diag "Skipped tests for redis >= 2.1.8";
     }
 
     if ( $redis->version >= 1.001 ) {
@@ -205,6 +225,11 @@ sub cmd_server {
     ok( ( $1 and $2 ), "Looks like a version" );
     my $version = 0 + $1 + 0.001 * $2 + ( $3 ? 0.000001 * $3 : 0 );
     is '' . $redis->version, "$version", "Correct server version: $version";
+    my $info2;
+    $redis->info(sub { $info2 = $_[1] });
+    $redis->mainloop;
+    is ref($info2), "HASH", "Got hashref in info callback";
+    is $info2->{redis_version}, $info->{redis_version}, "Same info as from synchronous call";
 
     if ( $redis->version >= 2.0 ) {
         eq_or_diff $redis->config_get("dbfilename"), [qw(dbfilename dump_test.rdb)], "CONFIG GET";
@@ -212,6 +237,29 @@ sub cmd_server {
     if ( $redis->version >= 2.005 ) {
         my ( $sec, $ms ) = @{ $redis->time };
         ok time - $sec < 2, "Server time is correct";
+    }
+    if ( $redis->version ge 2.006009 ) {
+        my $redis2 =
+          RedisDB->new( host => 'localhost', port => $server->{port}, connection_name => 'bar', );
+        is $redis->client_getname, undef, "Name for connection is not set";
+        is $redis->client_setname("foo"), "OK", "Set it to 'foo'";
+        is $redis->client_getname, "foo", "Now connection name is 'foo'";
+        my $clients = $redis->client_list;
+        is 0 + @$clients, 2, "Two clients connected to the server";
+        unless ( $clients->[0]{name} eq 'foo' ) {
+            @$clients = reverse @$clients;
+        }
+        is $clients->[0]{name}, "foo", "First client's name 'foo'";
+        is $clients->[1]{name}, "bar", "Another's is 'bar'";
+        is $redis->client_kill( $clients->[1]{addr} ), "OK", "Killed 'bar' connection ($clients->[1]{addr})";
+        $redis->client_list(sub {$clients = $_[1]});
+        $redis->mainloop;
+        is 0 + @$clients, 1, "Only one client is connected";
+        is $redis2->client_getname, "bar", "Second connection is restored with name 'bar'";
+    }
+    else {
+        diag $redis->version;
+        diag "Skipped tests for redis >= 2.6.9";
     }
 }
 
