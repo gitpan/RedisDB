@@ -2,7 +2,7 @@ package RedisDB;
 
 use strict;
 use warnings;
-our $VERSION = "2.13_01";
+our $VERSION = "2.13_02";
 $VERSION = eval $VERSION;
 
 use RedisDB::Error;
@@ -72,9 +72,11 @@ Default value is 0.
 
 =item raise_error
 
-By default if redis-server returned error reply, I<get_reply> method throws
-an exception of L<RedisDB::Error> type, if you set this parameter to false it
-will return error object instead.
+By default if redis-server returned error reply, or there was a connection
+error I<get_reply> method throws an exception of L<RedisDB::Error> type, if
+you set this parameter to false it will return an error object instead. Note,
+that if you have set this to false you must always check if the result you've
+got from RedisDB is a L<RedisDB::Error> object.
 
 =item timeout
 
@@ -198,24 +200,26 @@ sub _on_connect_error {
 }
 
 sub _on_disconnect {
-    my ( $self, $err ) = @_;
+    my ( $self, $err, $error_obj ) = @_;
 
     if ($err) {
-        my $msg = "Server unexpectedly closed connection. Some data might have been lost.";
+        $error_obj ||= RedisDB::Error::DISCONNECTED->new(
+            "Server unexpectedly closed connection. Some data might have been lost.");
         if ( $self->{raise_error} || $self->{_in_multi} ) {
-            confess $msg;
+            confess $error_obj;
         }
         else {
 
             # parser may be in inconsistent state, so we just replace it with a new one
             my $parser = delete $self->{_parser};
             $self->_init_parser;
+            delete $self->{_socket};
 
-            $parser->propagate_reply( RedisDB::Error::DISCONNECTED->new($msg) );
+            $parser->propagate_reply($error_obj);
         }
     }
     else {
-        $self->{warnings} and warn "Server closed connection, reconnecting...";
+        $self->{warnings} and warn( $error_obj || "Server closed connection, reconnecting..." );
     }
 }
 
@@ -359,13 +363,14 @@ sub _recv_data_nb {
         else {
             delete $self->{_socket};
 
-            if($self->{_parser}->callbacks or $self->{_in_multi}) {
+            if ( $self->{_parser}->callbacks or $self->{_in_multi} ) {
+
                 # there are some replies lost
-                $self->{on_disconnect}->($self, 1);
+                $self->{on_disconnect}->( $self, 1 );
             }
             else {
                 # clean disconnect, try to reconnect
-                $self->{on_disconnect}->($self, 0);
+                $self->{on_disconnect}->( $self, 0 );
             }
 
             $self->_connect unless $self->{_socket};
@@ -468,6 +473,8 @@ sub _ignore {
 
 sub IGNORE_REPLY { return \&_ignore; }
 
+=begin comment
+
 =head2 $self->send_command_cb($command[, @arguments][, \&callback])
 
 send a command to the server, invoke specified I<callback> on reply. The
@@ -497,6 +504,8 @@ I<send_command>:
     # may be replaced with
     $redis->send_command("GET", "Key", \&process_reply);
 
+=end comment
+
 =cut
 
 sub send_command_cb {
@@ -523,7 +532,9 @@ sub reply_ready {
 
 =head2 $self->mainloop
 
-this method blocks till all replies from the server will be received
+this method blocks till all replies from the server will be received. Note,
+that callbacks for some replies may send new requests to the server and so this
+method may block for indefinite time.
 
 =cut
 
@@ -571,16 +582,14 @@ sub get_reply {
         my $ret = $self->{_socket}->recv( my $buffer, 131072 );
         unless ( defined $ret ) {
             next if $! == EINTR or $! == 0;
-            if ( $! == EINTR or $! == EWOULDBLOCK ) {
-                my $err = RedisDB::Error::EAGAIN->new("$!");
-                if ( $self->{raise_error} ) {
-                    die $err;
-                }
-                else {
-                    return $err;
-                }
+            my $err;
+            if ( $! == EAGAIN or $! == EWOULDBLOCK ) {
+                $err = RedisDB::Error::EAGAIN->new("$!");
             }
-            confess "Error reading reply from server: $!";
+            else {
+                $err = RedisDB::Error::DISCONNECTED->new("Connection error: $!");
+            }
+            $self->{on_disconnect}->( $self, 1, $err );
         }
         if ( $buffer ne '' ) {
 
@@ -590,7 +599,7 @@ sub get_reply {
         else {
 
             # disconnected, should die unless raise_error is unset
-            $self->{on_disconnect}->($self, 1);
+            $self->{on_disconnect}->( $self, 1 );
         }
     }
 
@@ -601,8 +610,10 @@ sub get_reply {
 
 =head2 $self->get_all_replies
 
-Wait for the replies to all the commands sent to server. Return a list of
-replies to the commands for which callback was not set.
+Wait till replies to all the commands without callback set will be received.
+Return a list of replies to these commands. For commands with callback set
+replies are processed as usual. Unlike I<mainloop> this method block only till
+replies to all commands for which callback was NOT set will be received.
 
 =cut
 
@@ -618,7 +629,8 @@ sub get_all_replies {
 =head2 $self->replies_to_fetch
 
 Return the number of commands sent to the server replies to which wasn't yet
-retrieved with I<get_reply> or I<get_all_replies>.
+retrieved with I<get_reply> or I<get_all_replies>. This number only includes
+commands for which callback was not set.
 
 =cut
 
@@ -862,18 +874,25 @@ not recommended.
 
 =head1 ERROR HANDLING
 
-If an error happens which the module can't handle, it will throw an exception.
-It may happen as a result of a network error or invalid data encoding. Also
-module will throw an exception of the L<RedisDB::Error> type if the server
-returned an error reply and I<raise_error> parameter is set to true in the
-constructor (which is by default). After throwing an exception other than the
-L<RedisDB::Error> the RedisDB object will be left in inconsistent state. If you
-want to continue using the object after getting such an exception, you should
-invoke the L</reset_connection> method on it. This will drop current connection
-and all outstanding requests, so the object will return to the same state it
-was just after creation with the L</new> method. If the connection was in
-subscription mode, you will have to restore all the subscriptions, if it was in
-the middle of transaction, you will have to start the transaction again.
+If I<raise_error> parameter was set to true in the constructor (which is
+default setting), then module will throw an exception in case network IO
+function returned an error, or if redis-server returned an error reply. Network
+exceptions belong to L<RedisDB::Error::EAGAIN> or
+L<RedisDB::Error::DISCONNECTED> class, if redis-server returned an error
+exception will be L<RedisDB::Error> class. After network error object may be
+left in inconsistent state, so you should invoke I<reset_connection> method on
+it before using again, it will drop current connection and all outstanding
+requests, so the object will return to the same state it was just after
+creation with the L</new> method. If the connection was in subscription mode,
+you will have to restore all the subscriptions, if it was in the middle of
+transaction, you will have to start the transaction again.
+
+If I<raise_error> parameter was set to false, then instead of throwing an
+exception, module will return exception object and also pass this exception
+object to every callback waiting for the reply from the server. Object will not
+be left in inconsistent state, but you will have to restore all subscriptions
+if object was in subscription mode, and if the object was in the middle of
+transaction you will have to start it again.
 
 =cut
 
