@@ -27,6 +27,7 @@
          "requires" : {
             "Digest::SHA" : "0",
             "Test::Differences" : "0.61",
+            "Test::FailWarnings" : "0",
             "Test::More" : "0.96",
             "Test::Most" : "0.22",
             "Test::TCP" : "1.17"
@@ -59,5 +60,10 @@
          "url" : "git://github.com/trinitum/RedisDB"
       }
    },
-   "version" : "2.13_04"
+   "version" : "2.13_05",
+   "x_contributors" : [
+      "Pavel Shaydo <zwon@cpan.org>",
+      "HIROSE Masaaki <hirose31@gmail.com>",
+      "Uwe Voelker <uwe.voelker@xing.com>"
+   ]
 }
