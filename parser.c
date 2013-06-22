@@ -38,9 +38,11 @@ void rdb_parser__free(RDB_parser *parser) {
     struct rdbp_mblk_store *store, *next;
 
     SvREFCNT_dec(parser->callbacks);
-    SvREFCNT_dec(parser->default_cb);
     SvREFCNT_dec(parser->buffer);
-    SvREFCNT_dec(parser->mblk_reply);
+    if (parser->default_cb != NULL)
+        SvREFCNT_dec(parser->default_cb);
+    if (parser->mblk_reply != NULL)
+        SvREFCNT_dec(parser->mblk_reply);
 
     store = parser->mblk_store;
     while (store != NULL) {
@@ -69,16 +71,18 @@ void rdb_parser__propagate_reply(RDB_parser *parser, SV *reply) {
             break;
         }
 
-        dSP;
-        ENTER;
-        SAVETMPS;
-        PUSHMARK(SP);
-        XPUSHs(sv_2mortal(newRV_inc(parser->redisdb)));
-        XPUSHs(sv_2mortal(newSVsv(reply)));
-        PUTBACK;
-        call_sv(cb, G_VOID|G_DISCARD);
-        FREETMPS;
-        LEAVE;
+        {
+            dSP;
+            ENTER;
+            SAVETMPS;
+            PUSHMARK(SP);
+            XPUSHs(sv_2mortal(newRV_inc(parser->redisdb)));
+            XPUSHs(sv_2mortal(newSVsv(reply)));
+            PUTBACK;
+            call_sv(cb, G_VOID|G_DISCARD);
+            FREETMPS;
+            LEAVE;
+        }
     }
 }
 
