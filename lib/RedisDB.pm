@@ -2,7 +2,7 @@ package RedisDB;
 
 use strict;
 use warnings;
-our $VERSION = "2.17";
+our $VERSION = "2.18";
 $VERSION = eval $VERSION;
 
 use RedisDB::Error;
@@ -568,6 +568,8 @@ method may block for indefinite time.
 
 sub mainloop {
     my $self = shift;
+
+    return unless $self->{_parser};
 
     while ( $self->{_parser}->callbacks ) {
         croak "You can't call mainloop in the child process" unless $self->{_pid} == $$;
