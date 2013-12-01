@@ -4,7 +4,7 @@
       "Pavel Shaydo <zwon@cpan.org>"
    ],
    "dynamic_config" : 1,
-   "generated_by" : "ExtUtils::MakeMaker version 6.78, CPAN::Meta::Converter version 2.132661",
+   "generated_by" : "ExtUtils::MakeMaker version 6.82, CPAN::Meta::Converter version 2.132830",
    "keywords" : [
       "redis"
    ],
@@ -35,19 +35,19 @@
       },
       "configure" : {
          "requires" : {
-            "ExtUtils::CBuilder" : "0.27",
             "ExtUtils::MakeMaker" : "6.3002"
          }
       },
       "runtime" : {
          "requires" : {
             "Encode" : "2.1",
+            "RedisDB::Parser" : "2.2",
             "Try::Tiny" : "0",
             "perl" : "5.008004"
          }
       }
    },
-   "release_status" : "stable",
+   "release_status" : "testing",
    "resources" : {
       "bugtracker" : {
          "web" : "https://github.com/trinitum/RedisDB/issues"
@@ -60,10 +60,11 @@
          "url" : "git://github.com/trinitum/RedisDB"
       }
    },
-   "version" : "2.18",
+   "version" : "2.19_01",
    "x_contributors" : [
       "Pavel Shaydo <zwon@cpan.org>",
       "HIROSE Masaaki <hirose31@gmail.com>",
-      "Uwe Voelker <uwe.voelker@xing.com>"
+      "Uwe Voelker <uwe.voelker@xing.com>",
+      "Andrew O'Brien"
    ]
 }
