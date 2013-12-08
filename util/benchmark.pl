@@ -14,11 +14,12 @@ use Redis::Client;
 use Benchmark qw( cmpthese );
 
 say <<EOT;
-************************************************************
-Please be careful with results that this script gives you.
-It doesn't really test what it supposed to, and results
-may vary drastically depending on the environment.
-************************************************************
+******************************************************************
+* Check source code to understand what this script benchmarking. *
+* Depending on your environment you may get different results,   *
+* e.g. hyper-threading may significantly decrease performance    *
+* of some modules.                                               *
+******************************************************************
 EOT
 
 say "Testing against";
@@ -47,6 +48,7 @@ my $redis = Redis->new(
     #    reconnect => 1,
 );
 my $redisdb = RedisDB->new( host => "$srv->{host}", port => $srv->{port} );
+say "redis-server: ", $redisdb->version;
 my $rediscl = Redis::Client->new( host => "$srv->{host}", port => $srv->{port} );
 my $hiredis = Redis::hiredis->new();
 $hiredis->connect( $srv->{host}, $srv->{port} );
@@ -55,13 +57,13 @@ my $ae_redis = AnyEvent::Redis->new( host => "$srv->{host}", port => $srv->{port
 my $cv = $ae_redis->set( "RDB_AE_TEST", 1 );
 $cv->recv;
 
-$cv = AnyEvent::CondVar->new;
+$cv = AE::cv;
 my $ripe = AnyEvent::Redis::RipeRedis->new( host => "$srv->{host}", port => $srv->{port} );
 $ripe->set(
     "RDB_RIPE_TEST",
     1,
     {
-        on_done => sub { $cv->broadcast }
+        on_done => sub { $cv->send }
     }
 );
 $cv->recv;
@@ -117,26 +119,30 @@ cmpthese 50, {
         }
     },
     "AE::Redis" => sub {
-        my $done = AnyEvent::CondVar->new;
+        my $done = AE::cv;
         my $cnt;
-        for ( 1 .. 1000 ) {
-            $ae_redis->set( "RDB$_", "0123456789abcdef", sub { } );
-            $ae_redis->get( "RDB$_", sub { $done->broadcast if ++$cnt == 1000 } );
-        }
+        AE::postpone {
+            for ( 1 .. 1000 ) {
+                $ae_redis->set( "RDB$_", "0123456789abcdef", sub { } );
+                $ae_redis->get( "RDB$_", sub { $done->send if ++$cnt == 1000 } );
+            }
+        };
         $done->recv;
     },
     "AE::R::RipeRedis" => sub {
-        my $done = AnyEvent::CondVar->new;
+        my $done = AE::cv;
         my $cnt;
-        for ( 1 .. 1000 ) {
-            $ripe->set( "RDB$_", "0123456789abcdef" );
-            $ripe->get(
-                "RDB$_",
-                {
-                    on_done => sub { $done->broadcast if ++$cnt == 1000 }
-                }
-            );
-        }
+        AE::postpone {
+            for ( 1 .. 1000 ) {
+                $ripe->set( "RDB$_", "0123456789abcdef" );
+                $ripe->get(
+                    "RDB$_",
+                    {
+                        on_done => sub { $done->send if ++$cnt == 1000 }
+                    }
+                );
+            }
+        };
         $done->recv;
     },
 };
