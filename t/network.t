@@ -89,7 +89,7 @@ subtest "Restore connection" => sub {
             reconnect_delay_max => 2,
           )
     }
-    qr/on_connect_error/, "Dies on conection failure";
+    "RedisDB::Error::DISCONNECTED", "Dies on conection failure";
 };
 
 # Check functionality if raise_error is disabled
@@ -150,6 +150,13 @@ subtest "Restore connection without raise_error" => sub {
     isa_ok $cb_res, "RedisDB::Error::DISCONNECTED", "  with an error object";
 
     is $redis->set( "key", "value" ), "OK", "reconnected and set the key";
+
+    # now server disconnects again, so send will start failing also
+    $redis->{reconect_attempts} = 1;
+    $res = $redis->set("key", "value");
+    isa_ok $res, "RedisDB::Error::DISCONNECTED", "got an error when server closed connection without sending reply";
+    $res = $redis->set("key", "value");
+    isa_ok $res, "RedisDB::Error::DISCONNECTED", "got an error when module couldn't establish connection with the server";
 };
 
 # Check what will happen if server immediately closes connection
