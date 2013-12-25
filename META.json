@@ -4,7 +4,7 @@
       "Pavel Shaydo <zwon@cpan.org>"
    ],
    "dynamic_config" : 1,
-   "generated_by" : "ExtUtils::MakeMaker version 6.84, CPAN::Meta::Converter version 2.132830",
+   "generated_by" : "ExtUtils::MakeMaker version 6.84, CPAN::Meta::Converter version 2.133380",
    "keywords" : [
       "redis"
    ],
@@ -47,7 +47,7 @@
          }
       }
    },
-   "release_status" : "testing",
+   "release_status" : "stable",
    "resources" : {
       "bugtracker" : {
          "web" : "https://github.com/trinitum/RedisDB/issues"
@@ -60,7 +60,7 @@
          "url" : "git://github.com/trinitum/RedisDB"
       }
    },
-   "version" : "2.21_01",
+   "version" : "2.22",
    "x_contributors" : [
       "Pavel Shaydo <zwon@cpan.org>",
       "HIROSE Masaaki <hirose31@gmail.com>",
