@@ -2,7 +2,7 @@ package RedisDB;
 
 use strict;
 use warnings;
-our $VERSION = "2.24";
+our $VERSION = "2.26";
 $VERSION = eval $VERSION;
 
 use RedisDB::Error;
@@ -943,6 +943,68 @@ sub shutdown {
     return;
 }
 
+=head2 $self->scan_all([MATCH => $pattern,][COUNT => $count,])
+
+this method starts a new SCAN iteration and executes SCAN commands till cursor
+returned by server is 0. It then returns all the keys returned by server during
+the iteration. MATCH and COUNT are passed to SCAN command. In case of success
+returns reference to array with matching keys, in case of error dies or returns
+L<RedisDB::Error> object depending on I<raise_error> option.
+
+=cut
+
+sub scan_all {
+    my $self = shift;
+    if ( ref $_[-1] eq 'CODE' ) {
+        croak "scan_all does not accept callback parameter";
+    }
+    my $cursor = 0;
+    my @result;
+    do {
+        my $res = $self->execute( 'SCAN', $cursor, @_ );
+
+        # in case of error just return it
+        return $res unless ref $res eq 'ARRAY';
+        $cursor = $res->[0];
+        push @result, @{ $res->[1] };
+    } while $cursor;
+    return \@result;
+}
+
+=head2 $self->hscan_all($key, [MATCH => $pattern,][COUNT => $count,])
+
+=head2 $self->sscan_all($key, [MATCH => $pattern,][COUNT => $count,])
+
+=head2 $self->zscan_all($key, [MATCH => $pattern,][COUNT => $count,])
+
+these three methods are doing the same thing as I<scan_all> except that they
+require a key as the first parameter, and they iterate using HSCAN, SSCAN and
+ZSCAN commands.
+
+=cut
+
+for my $command (qw(hscan sscan zscan)) {
+    my $uccom = uc $command;
+    no strict 'refs';
+    my $name = "${command}_all";
+    *{ __PACKAGE__ . "::$name" } = sub {
+        my $self = shift;
+        my $key  = shift;
+        if ( ref $_[-1] eq 'CODE' ) {
+            croak "$name does not accept callback parameter";
+        }
+        my $cursor = 0;
+        my @result;
+        do {
+            my $res = $self->execute( $uccom, $key, $cursor, @_ );
+            return $res unless ref $res eq 'ARRAY';
+            $cursor = $res->[0];
+            push @result, @{ $res->[1] };
+        } while $cursor;
+        return \@result;
+    };
+}
+
 =head1 UTF-8 SUPPORT
 
 The redis protocol is designed to work with the binary data, both keys and
@@ -1447,7 +1509,7 @@ Pavel Shaydo, C<< <zwon at cpan.org> >>
 
 =head1 LICENSE AND COPYRIGHT
 
-Copyright 2011-2013 Pavel Shaydo.
+Copyright 2011-2014 Pavel Shaydo.
 
 This program is free software; you can redistribute it and/or modify it
 under the terms of either: the GNU General Public License as published
