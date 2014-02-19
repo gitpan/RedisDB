@@ -4,7 +4,7 @@
       "Pavel Shaydo <zwon@cpan.org>"
    ],
    "dynamic_config" : 1,
-   "generated_by" : "ExtUtils::MakeMaker version 6.84, CPAN::Meta::Converter version 2.133380",
+   "generated_by" : "ExtUtils::MakeMaker version 6.86, CPAN::Meta::Converter version 2.133380",
    "keywords" : [
       "redis"
    ],
@@ -60,7 +60,7 @@
          "url" : "git://github.com/trinitum/RedisDB"
       }
    },
-   "version" : "2.26",
+   "version" : "2.27",
    "x_contributors" : [
       "Pavel Shaydo <zwon@cpan.org>",
       "HIROSE Masaaki <hirose31@gmail.com>",
