@@ -3,38 +3,39 @@ abstract: 'Perl extension to access redis database'
 author:
   - 'Pavel Shaydo <zwon@cpan.org>'
 build_requires:
-  Digest::SHA: 0
-  Test::Differences: 0.61
-  Test::FailWarnings: 0
-  Test::More: 0.96
-  Test::Most: 0.22
-  Test::TCP: 1.17
+  Digest::SHA: '0'
+  Test::Differences: '0.61'
+  Test::FailWarnings: '0'
+  Test::More: '0.96'
+  Test::Most: '0.22'
+  Test::TCP: '1.17'
 configure_requires:
-  ExtUtils::MakeMaker: 6.3002
+  ExtUtils::MakeMaker: '6.3002'
 dynamic_config: 1
-generated_by: 'ExtUtils::MakeMaker version 6.86, CPAN::Meta::Converter version 2.133380'
+generated_by: 'ExtUtils::MakeMaker version 6.96, CPAN::Meta::Converter version 2.140640'
 keywords:
   - redis
 license: perl
 meta-spec:
   url: http://module-build.sourceforge.net/META-spec-v1.4.html
-  version: 1.4
+  version: '1.4'
 name: RedisDB
 no_index:
   directory:
     - t
     - inc
 requires:
-  Encode: 2.1
-  RedisDB::Parser: 2.2
-  Try::Tiny: 0
-  perl: 5.008004
+  Encode: '2.1'
+  IO::Socket::IP: '0'
+  RedisDB::Parser: '2.2'
+  Try::Tiny: '0'
+  perl: '5.008004'
 resources:
   bugtracker: https://github.com/trinitum/RedisDB/issues
   homepage: https://github.com/trinitum/RedisDB
   license: http://dev.perl.org/licenses/
   repository: git://github.com/trinitum/RedisDB
-version: 2.31_01
+version: 2.31_02
 x_contributors:
   - 'Pavel Shaydo <zwon@cpan.org>'
   - 'HIROSE Masaaki <hirose31@gmail.com>'
