@@ -19,6 +19,7 @@ subtest "Hashes commands"           => \&cmd_hashes;
 subtest "Server info commands"      => \&cmd_server;
 subtest "Sets commands"             => \&cmd_sets;
 subtest "Ordered sets commands"     => \&cmd_zsets;
+subtest "HyperLogLog commands"      => \&cmd_hyperloglog;
 subtest "Scripts"                   => \&cmd_scripts;
 
 sub group_pairs {
@@ -422,6 +423,15 @@ sub cmd_zsets {
         eq_or_diff cut_precision( $redis->zrange( "zunion", 0, -1, "WITHSCORES" ) ),
           [qw(A 1.5 B 2.4 C 3.3 D 4.2 E 5.1 F 6)], "ZUNIONSTORE result is correct";
     }
+
+    if ( $redis->version >= 2.008009 ) {
+        is $redis->zadd( 'zlex', qw(0 a 0 b 0 c 0 d 0 e 0 f 0 g) ), 7, "added 7 elements to zlex";
+        eq_or_diff $redis->zrangebylex( 'zlex', '-', '[c' ), [qw( a b c )], "ZRAGEBYLEX";
+        is $redis->zlexcount( 'zlex', '(b', '[e' ), 3, "ZLEXCOUNT";
+        is $redis->zremrangebylex( 'zlex', '(b', '[e' ), 3, "ZREMRANGEBYLEX";
+        eq_or_diff $redis->zrange( 'zlex', 0, -1 ), [qw(a b f g)],
+          "correct set after ZREMRANGEBYLEX";
+    }
 }
 
 sub cmd_scripts {
@@ -442,6 +452,15 @@ sub cmd_scripts {
     eq_or_diff $redis->script_exists( $sha1, $sha3, $sha2 ), [ 1, 0, 1 ], "SCRIPT EXISTS";
     is $redis->script_load($script3), $sha3, "SCRIPT LOAD";
     eq_or_diff $redis->evalsha( $sha3, 1, 'eval' ), "passed", "EVALSHA";
+}
+
+sub cmd_hyperloglog {
+    plan skip_all => "This test requires redis-server >= 2.8.9" unless $redis->version >= 2.008009;
+    $redis->flushdb;
+    is $redis->pfadd('hll1', qw(a b c d)), 1, "PFADD";
+    is $redis->pfcount('hll1'), 4, "PFCOUNT";
+    is $redis->pfadd('hll2', qw(a b e f)), 1, "PFADD";
+    is $redis->pfmerge('hll3', 'hll1', 'hll2'), 'OK', "PFMERGE";
 }
 
 done_testing;

@@ -35,7 +35,7 @@ resources:
   homepage: https://github.com/trinitum/RedisDB
   license: http://dev.perl.org/licenses/
   repository: git://github.com/trinitum/RedisDB
-version: 2.31_02
+version: 2.31_03
 x_contributors:
   - 'Pavel Shaydo <zwon@cpan.org>'
   - 'HIROSE Masaaki <hirose31@gmail.com>'
