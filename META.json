@@ -48,7 +48,7 @@
          }
       }
    },
-   "release_status" : "stable",
+   "release_status" : "testing",
    "resources" : {
       "bugtracker" : {
          "web" : "https://github.com/trinitum/RedisDB/issues"
@@ -61,7 +61,7 @@
          "url" : "git://github.com/trinitum/RedisDB"
       }
    },
-   "version" : "2.33",
+   "version" : "2.34_01",
    "x_contributors" : [
       "Pavel Shaydo <zwon@cpan.org>",
       "HIROSE Masaaki <hirose31@gmail.com>",

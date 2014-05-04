@@ -2,7 +2,7 @@ package RedisDB;
 
 use strict;
 use warnings;
-our $VERSION = "2.33";
+our $VERSION = "2.34_01";
 $VERSION = eval $VERSION;
 
 use RedisDB::Error;
@@ -1085,7 +1085,10 @@ L<RedisDB::Error::DISCONNECTED> class, next time you use the object it will
 establish a new connection. If L</raise_error> disabled, the module will pass
 L<RedisDB::Error::DISCONNECTED> object to all outstanding callbacks and will
 try to reconnect to the server; it will also automatically restore
-subscriptions if object was in subscription mode.
+subscriptions if object was in subscription mode. Module never tries to
+reconnect after MULTI command was sent to server and before corresponding EXEC
+or DISCARD was sent as this may cause data corruption, so during transaction
+module behaves like if L</raise_error> is set.
 
 Module makes several attempts to reconnect each time increasing interval before
 the next attempt, depending on the values of L</reconnect_attempts> and
@@ -1095,7 +1098,7 @@ hostname, so on next attempt module will try to connect to different server.
 
 =cut
 
-=head1 PIPELINING SUPPORT
+=head1 PIPELINING
 
 You can send commands in the pipelining mode. It means you are sending multiple
 commands to the server without waiting for the replies.  This is implemented by
@@ -1156,7 +1159,7 @@ or using L</"WRAPPER METHODS"> you can rewrite it as:
 
 =cut
 
-=head1 SUBSCRIPTIONS SUPPORT
+=head1 PUB/SUB MESSAGING
 
 RedisDB supports subscriptions to redis channels. In the subscription mode you
 can subscribe to some channels and receive all the messages sent to these
@@ -1436,17 +1439,17 @@ sub psubscribed {
     return keys %{ shift->{_psubscribed} };
 }
 
-=head1 TRANSACTIONS SUPPORT
+=head1 TRANSACTIONS
 
 Transactions allow you to execute a sequence of commands in a single step. In
 order to start a transaction you should use the I<multi> method.  After you
 have entered a transaction all the commands you issue are queued, but not
 executed till you call the I<exec> method. Typically these commands return
 string "QUEUED" as a result, but if there is an error in e.g. number of
-arguments, they may croak. When you call exec, all the queued commands will be
-executed and exec will return a list of results for every command in the
-transaction. If instead of I<exec> you call I<discard>, all scheduled commands
-will be canceled.
+arguments, they may return an error. When you call exec, all the queued
+commands will be executed and exec will return a list of results for every
+command in the transaction. If instead of I<exec> you call I<discard>, all
+scheduled commands will be canceled.
 
 You can set some keys as watched. If any watched key has been changed by
 another client before you called exec, the transaction will be discarded and
@@ -1454,7 +1457,7 @@ exec will return false value.
 
 =cut
 
-=head2 $self->multi
+=head2 $self->multi([\&callback])
 
 Enter the transaction. After this and till I<exec> or I<discard> will be called,
 all the commands will be queued but not executed.
@@ -1465,12 +1468,16 @@ sub multi {
     my $self = shift;
 
     die "Multi calls can not be nested!" if $self->{_in_multi};
-    my $res = $self->execute('MULTI');
     $self->{_in_multi} = 1;
-    return $res;
+    if ( ref $_[-1] eq 'CODE' ) {
+        return $self->send_command( 'MULTI', @_ );
+    }
+    else {
+        return $self->execute('MULTI');
+    }
 }
 
-=head2 $self->exec
+=head2 $self->exec([\&callback])
 
 Execute all queued commands and finish the transaction. Returns a list of
 results for every command. Will croak if some command has failed.  Also
@@ -1482,12 +1489,18 @@ client, the transaction will be canceled and I<exec> will return false.
 sub exec {
     my $self = shift;
 
-    my $res = $self->execute('EXEC');
+    my $res;
+    if ( ref $_[-1] eq 'CODE' ) {
+        $res = $self->send_command( 'EXEC', @_ );
+    }
+    else {
+        $res = $self->execute('EXEC');
+    }
     $self->{_in_multi} = undef;
     return $res;
 }
 
-=head2 $self->discard
+=head2 $self->discard([\&callback])
 
 Discard all queued commands without executing them and unwatch all keys.
 
@@ -1496,7 +1509,13 @@ Discard all queued commands without executing them and unwatch all keys.
 sub discard {
     my $self = shift;
 
-    my $res = $self->execute('DISCARD');
+    my $res;
+    if ( ref $_[-1] eq 'CODE' ) {
+        $res = $self->send_command( 'DISCARD', @_ );
+    }
+    else {
+        $res = $self->execute('DISCARD');
+    }
     $self->{_in_multi} = undef;
     return $res;
 }
